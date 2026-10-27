@@ -34,7 +34,10 @@
   atlas)
 
 (defn built? [^Atlas atlas]
-  (f/atlas-built? (live-handle atlas :built?)))
+  (let [result (f/atlas-built? (live-handle atlas :built?))]
+    (when (and (false? result) (seq (f/last-error)))
+      (native-failure :built?))
+    result))
 
 (defmacro with-atlas [[atlas opts] & body]
   `(let [~atlas (make-atlas ~opts)]

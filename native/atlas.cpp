@@ -1,11 +1,11 @@
 #include "slipstream_shim.h"
 #include "slipstream_internal.hpp"
 
-const char* ss_last_error(void) {
-  return slipstream::last_error.c_str();
+const char* ss_last_error(void) noexcept {
+  return slipstream::last_error;
 }
 
-void* ss_atlas_new(uint32_t width) {
+void* ss_atlas_new(uint32_t width) noexcept {
   ss_try(nullptr,
     if(width == 0) {
       throw std::invalid_argument("texture width must be greater than zero");
@@ -17,21 +17,21 @@ void* ss_atlas_new(uint32_t width) {
   );
 }
 
-int ss_atlas_destroy(void* atlas) {
+int ss_atlas_destroy(void* atlas) noexcept {
   ss_try(-1,
     delete slipstream::require_atlas(atlas);
     return 0;
   );
 }
 
-int ss_atlas_build(void* atlas) {
+int ss_atlas_build(void* atlas) noexcept {
   ss_try(-1,
     slipstream::require_atlas(atlas)->build();
     return 0;
   );
 }
 
-bool ss_atlas_is_built(void* atlas) {
+bool ss_atlas_is_built(void* atlas) noexcept {
   ss_try(false,
     return slipstream::require_atlas(atlas)->isBuilt();
   );

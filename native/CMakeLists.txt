@@ -14,6 +14,7 @@ if(NOT SLUGHORN_HOME)
   endif()
 endif()
 set(SLUGHORN_HOME "${SLUGHORN_HOME}" CACHE PATH "Path to the Slughorn checkout")
+message(STATUS "Slipstream: using Slughorn at ${SLUGHORN_HOME}")
 
 if(NOT EXISTS "${SLUGHORN_HOME}/slughorn/slughorn.cpp")
   message(FATAL_ERROR "Slughorn not found at ${SLUGHORN_HOME}; set SLUGHORN_HOME to a Slughorn checkout")

@@ -18,6 +18,18 @@
       (is (true? (slug/built? a))))
     (is (true? @(:destroyed? @atlas)))))
 
+(deftest built-native-failure-throws-ex-info
+  (let [atlas (slug/make-atlas)]
+    (try
+      (with-redefs [slipstream.ffi/atlas-built? (constantly false)
+                    slipstream.ffi/last-error (constantly "injected native failure")]
+        (let [error (capture-ex-info #(slug/built? atlas))]
+          (is (some? error))
+          (is (= :built? (:op (ex-data error))))
+          (is (= "injected native failure" (:native-error (ex-data error))))))
+      (finally
+        (slug/destroy! atlas)))))
+
 (deftest destroy-is-idempotent
   (let [atlas (slug/make-atlas)]
     (slug/destroy! atlas)

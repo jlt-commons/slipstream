@@ -17,6 +17,9 @@
          native {:doc "build the Slughorn shim if its sources changed"
                  :task (let [slughorn (or (System/getenv "SLUGHORN_HOME")
                                           (str (System/getProperty "user.home") "/src/slughorn"))
+                             stamp "native/build/slipstream-slughorn-home"
+                             configured (when (fs/exists? stamp)
+                                          (.trim (slurp stamp)))
                              sources ["native/CMakeLists.txt"
                                       "native/slipstream_shim.h"
                                       "native/slipstream_internal.hpp"
@@ -24,13 +27,16 @@
                                       (str slughorn "/slughorn/slughorn.cpp")
                                       (str slughorn "/slughorn/slughorn.hpp")
                                       "deps.edn"]]
-                         (if (or (not (fs/exists? lib))
+                         (if (or (not= slughorn configured)
+                                 (not (fs/exists? lib))
                                  (seq (fs/modified-since lib sources)))
                            (do
                              (shell "cmake" "-S" "native" "-B" "native/build"
-                                    "-DCMAKE_BUILD_TYPE=Release")
+                                    "-DCMAKE_BUILD_TYPE=Release"
+                                    (str "-DSLUGHORN_HOME=" slughorn))
                              (shell "cmake" "--build" "native/build"
                                     "--config" "Release" "--parallel")
+                             (spit stamp slughorn)
                              (println "built:" lib))
                            (println "up to date:" lib)))}
 
