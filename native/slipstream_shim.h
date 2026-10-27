@@ -100,9 +100,11 @@ int ss_atlas_add_shape(
 /* Returns 1 when found, 0 when absent, and -1 on failure. */
 int ss_atlas_get_shape(void* atlas, const SSKey* key, SSShape* out) SS_NOEXCEPT;
 
+typedef struct SSMask SSMask;
+
 int ss_atlas_add_composite(
   void* atlas, const SSKey* key, const SSLayer* layers, uint64_t layer_count,
-  float advance) SS_NOEXCEPT;
+  float advance, const SSMask* mask) SS_NOEXCEPT;
 
 /* Returns 1 when found, 0 when absent, and -1 on failure. */
 int ss_atlas_get_composite(void* atlas, const SSKey* key, float* advance) SS_NOEXCEPT;
@@ -137,13 +139,13 @@ typedef struct SSGradientStop {
   SSColor color;
 } SSGradientStop;
 
-typedef struct SSMask {
+struct SSMask {
   SSKey key;
   float params[6];
   uint8_t type;
   uint8_t invert;
   uint8_t has_key;
-} SSMask;
+};
 
 typedef struct SSFontMetrics {
   float units_per_em, cap_height_ratio, x_height_ratio;

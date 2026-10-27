@@ -1,22 +1,30 @@
 (ns slipstream.core
+  (:refer-clojure :exclude [compile])
   (:require [jolt.ffi :as ffi]
             [slipstream.ffi :as f]))
 
 (defrecord Atlas [handle destroyed?])
 (defrecord Path [handle destroyed?])
 (defrecord Canvas [handle atlas destroyed?])
+(defrecord Scene [atlas data layers destroyed?])
 
 (defn- native-failure [op]
   (let [message (or (f/last-error) "unknown native error")]
     (throw (ex-info (str (name op) " failed: " message)
                     {:op op :native-error message}))))
 
-(defn- live-handle [^Atlas atlas op]
-  (when (or @(:destroyed? atlas)
-            (nil? (:handle atlas))
-            (zero? (:handle atlas)))
-    (throw (ex-info "atlas is destroyed" {:op op})))
-  (:handle atlas))
+(defn- live-handle [atlas op]
+  (if (instance? Scene atlas)
+    (do
+      (when @(:destroyed? atlas)
+        (throw (ex-info "scene is destroyed" {:op op})))
+      (recur (:atlas atlas) op))
+    (do
+      (when (or @(:destroyed? atlas)
+                (nil? (:handle atlas))
+                (zero? (:handle atlas)))
+        (throw (ex-info "atlas is destroyed" {:op op})))
+      (:handle atlas))))
 
 (defn make-atlas [& [{:keys [texture-width] :or {texture-width 512}}]]
   (let [handle (f/atlas-new texture-width)]
@@ -25,13 +33,16 @@
     (->Atlas handle (atom false))))
 
 (defn destroy! [resource]
-  (when (compare-and-set! (:destroyed? resource) false true)
-    (let [result (cond
-                   (instance? Path resource) (f/path-destroy (:handle resource))
-                   (instance? Canvas resource) (f/canvas-destroy (:handle resource))
-                   :else (f/atlas-destroy (:handle resource)))]
-      (when-not (zero? result)
-        (native-failure :destroy!))))
+  (if (instance? Scene resource)
+    (when (compare-and-set! (:destroyed? resource) false true)
+      (destroy! (:atlas resource)))
+    (when (compare-and-set! (:destroyed? resource) false true)
+      (let [result (cond
+                     (instance? Path resource) (f/path-destroy (:handle resource))
+                     (instance? Canvas resource) (f/canvas-destroy (:handle resource))
+                     :else (f/atlas-destroy (:handle resource)))]
+        (when-not (zero? result)
+          (native-failure :destroy!)))))
   resource)
 
 (defn build! [^Atlas atlas]
@@ -232,15 +243,19 @@
                                     [field (ffi/read-field out f/shape-layout field)])
                                   shape-fields)))))))))
 
-(defn add-composite! [atlas key layers {:keys [advance] :or {advance 0}}]
+(declare call-with-mask)
+
+(defn add-composite! [atlas key layers {:keys [advance mask] :or {advance 0}}]
   (let [handle (live-handle atlas :add-composite!)]
     (call-with-key key
       (fn [key-p]
         (call-with-layers layers
           (fn [layer-p n]
-            (when-not (zero? (f/atlas-add-composite handle key-p layer-p n
-                                                    (double advance)))
-              (native-failure :add-composite!)))))))
+            (call-with-mask mask
+              (fn [mask-p]
+                (when-not (zero? (f/atlas-add-composite handle key-p layer-p n
+                                                        (double advance) mask-p))
+                  (native-failure :add-composite!)))))))))
   atlas)
 
 (defn- read-layer [p]
@@ -321,14 +336,20 @@
             [] (:layers c))))
       [layer])))
 
-(defn layers [atlas root]
+(defn- explicit-root [atlas root op]
+  (or root
+      (when (instance? Scene atlas) (:layers atlas))
+      (throw (ex-info "an explicit mesh root is required" {:op op}))))
+
+(defn layers [atlas & [root]]
   (live-handle atlas :layers)
-  (if (and (vector? root)
-           (not (and (= :codepoint (first root)) (<= 2 (count root) 3))))
-    (reduce (fn [out layer] (into out (flatten-layer atlas layer {}))) [] root)
-    (if (composite atlas root)
-      (flatten-layer atlas {:key root} {})
-      [])))
+  (let [root (explicit-root atlas root :layers)]
+    (if (and (vector? root)
+             (not (and (= :codepoint (first root)) (<= 2 (count root) 3))))
+      (reduce (fn [out layer] (into out (flatten-layer atlas layer {}))) [] root)
+      (if (composite atlas root)
+        (flatten-layer atlas {:key root} {})
+        []))))
 
 (def ^:private texture-formats
   [:rgba32f :rgba16f :rgba16ui :rg16ui :rgba8 :rgb32f :r32f])
@@ -363,9 +384,9 @@
    :shape-data {:location 4 :offset 60 :size 4 :type :float}
    :effect-id {:location 5 :offset 76 :size 1 :type :float}})
 
-(defn mesh [atlas root]
+(defn mesh [atlas & [root]]
   (let [handle (live-handle atlas :mesh)
-        flattened (layers atlas root)]
+        flattened (layers atlas (explicit-root atlas root :mesh))]
     (call-with-layers flattened
       (fn [layer-p n]
         (let [mesh-p (f/mesh-new handle layer-p n)]
@@ -402,7 +423,7 @@
   (let [handle (f/atlas-read (str path))]
     (when (or (nil? handle) (zero? handle))
       (native-failure :read-atlas))
-    (->Atlas handle (atom false))))
+    (->Scene (->Atlas handle (atom false)) nil nil (atom false))))
 
 (defn- live-path [path op]
   (when (or @(:destroyed? path) (nil? (:handle path)) (zero? (:handle path)))
@@ -814,6 +835,28 @@
       (throw (ex-info "mask params must be a vector of at most six numbers" {:mask mask})))
     (into (mapv double params) (repeat (- 6 (count params)) 0.0))))
 
+(defn- call-with-mask [mask callback]
+  (if (nil? mask)
+    (callback 0)
+    (let [type (:type mask)
+          type-id (enum-value type (zipmap mask-types (range)) :mask-type)
+          params (normalize-mask-params mask)
+          key (:key mask)]
+      (when (and (= type :sdf-tile) (nil? key))
+        (throw (ex-info "SDF tile mask requires a key" {:op :mask :mask mask})))
+      (letfn [(write-and-call [key-p]
+                (ffi/with-layout [mask-p f/mask-layout]
+                  (doseq [field [:type :codepoint :name]]
+                    (ffi/write-field mask-p f/mask-layout [:key field]
+                                     (if key-p (ffi/read-field key-p f/key-layout field) 0)))
+                  (doseq [i (range 6)]
+                    (ffi/write-field mask-p f/mask-layout [:params i] (nth params i)))
+                  (ffi/write-field mask-p f/mask-layout :type type-id)
+                  (ffi/write-field mask-p f/mask-layout :invert (if (:invert mask) 1 0))
+                  (ffi/write-field mask-p f/mask-layout :has-key (if key-p 1 0))
+                  (callback mask-p)))]
+        (if key (call-with-key key write-and-call) (write-and-call nil))))))
+
 (defn set-mask! [canvas mask]
   (let [handle (live-canvas canvas :set-mask!)]
     (cond
@@ -828,25 +871,10 @@
           (native-failure :set-mask!)))
 
       :else
-      (let [type (:type mask)
-            type-id (enum-value type (zipmap mask-types (range)) :mask-type)
-            params (normalize-mask-params mask)
-            key (:key mask)]
-        (when (and (= type :sdf-tile) (nil? key))
-          (throw (ex-info "SDF tile mask requires a key" {:op :set-mask! :mask mask})))
-        (letfn [(write-and-call [key-p]
-                  (ffi/with-layout [mask-p f/mask-layout]
-                    (doseq [field [:type :codepoint :name]]
-                      (ffi/write-field mask-p f/mask-layout [:key field]
-                                       (if key-p (ffi/read-field key-p f/key-layout field) 0)))
-                    (doseq [i (range 6)]
-                      (ffi/write-field mask-p f/mask-layout [:params i] (nth params i)))
-                    (ffi/write-field mask-p f/mask-layout :type type-id)
-                    (ffi/write-field mask-p f/mask-layout :invert (if (:invert mask) 1 0))
-                    (ffi/write-field mask-p f/mask-layout :has-key (if key-p 1 0))
-                    (when-not (zero? (f/canvas-set-mask handle mask-p))
-                      (native-failure :set-mask!))))]
-          (if key (call-with-key key write-and-call) (write-and-call nil))))))
+      (call-with-mask mask
+        (fn [mask-p]
+          (when-not (zero? (f/canvas-set-mask handle mask-p))
+            (native-failure :set-mask!))))))
   canvas)
 
 (defn add-gradient! [atlas {:keys [type from to center inner-radius outer-radius
@@ -900,3 +928,23 @@
                             (enum-value repeat-y {:repeat 0 :reflect 1} :repeat-y))]
                   (when (neg? id) (native-failure :add-pattern!))
                   id)))))))))
+
+(defn- scene-function [name]
+  (require 'slipstream.scene)
+  (resolve (symbol "slipstream.scene" name)))
+
+(defn normalize [scene-data]
+  ((scene-function "normalize") scene-data))
+
+(defn compile [scene-data]
+  ((scene-function "compile") scene-data))
+
+(defn ensure-scene [value]
+  (if (instance? Scene value) value (compile value)))
+
+(defmacro with-scene [[scene value] & body]
+  `(let [~scene (ensure-scene ~value)]
+     (try
+       ~@body
+       (finally
+         (destroy! ~scene)))))

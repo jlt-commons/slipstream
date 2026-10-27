@@ -55,7 +55,7 @@
    :pointer :uint64 :pointer :uint64 :uint32 :float :float] :int32)
 (ffi/defcfn atlas-shape "ss_atlas_get_shape" [:pointer :pointer :pointer] :int32)
 (ffi/defcfn atlas-add-composite "ss_atlas_add_composite"
-  [:pointer :pointer :pointer :uint64 :float] :int32)
+  [:pointer :pointer :pointer :uint64 :float :pointer] :int32)
 (ffi/defcfn atlas-composite "ss_atlas_get_composite" [:pointer :pointer :pointer] :int32)
 (ffi/defcfn atlas-composite-layers "ss_atlas_get_composite_layers"
   [:pointer :pointer :pointer :uint64 :pointer] :int32)

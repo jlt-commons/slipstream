@@ -2,7 +2,8 @@
   (:require [clojure.test :as t]
             [slipstream.core-test]
             [slipstream.canvas-test]
-            [slipstream.text-test]))
+            [slipstream.text-test]
+            [slipstream.scene-test]))
 
 (defn- exit [code]
   (cond
@@ -12,5 +13,5 @@
 
 (defn -main [& _]
   (let [{:keys [fail error]} (t/run-tests 'slipstream.core-test 'slipstream.canvas-test
-                                          'slipstream.text-test)]
+                                          'slipstream.text-test 'slipstream.scene-test)]
     (exit (if (zero? (+ fail error)) 0 1))))

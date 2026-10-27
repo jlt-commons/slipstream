@@ -95,6 +95,19 @@ std::vector<slughorn::slug_t> floats_from_c(const float* values, uint64_t count)
   return std::vector<slughorn::slug_t>(values, values + count);
 }
 
+slughorn::Mask mask_from_c(const SSMask& mask) {
+  if(mask.type > 8) throw std::invalid_argument("unknown mask type");
+  slughorn::Mask out;
+  out.type = static_cast<slughorn::Mask::Type>(mask.type);
+  out.invert = mask.invert != 0;
+  for(size_t i = 0; i < 6; ++i) out.params[i] = mask.params[i];
+  if(mask.has_key) out.key = from_c(&mask.key);
+  if(out.type == slughorn::Mask::Type::SDFTile && !out.key) {
+    throw std::invalid_argument("SDF tile mask requires a key");
+  }
+  return out;
+}
+
 SSTextureDescriptor texture_to_c(const slughorn::Atlas::TextureData& texture) {
   return {
     texture.bytes.data(), static_cast<uint64_t>(texture.bytes.size()),
@@ -154,7 +167,7 @@ int ss_atlas_get_shape(void* atlas, const SSKey* key, SSShape* out) noexcept {
 
 int ss_atlas_add_composite(
   void* atlas, const SSKey* key, const SSLayer* layers, uint64_t layer_count,
-  float advance
+  float advance, const SSMask* mask
 ) noexcept {
   ss_try(-1,
     if(layer_count > 0 && !layers) throw std::invalid_argument("layers are null");
@@ -164,6 +177,7 @@ int ss_atlas_add_composite(
 
     slughorn::CompositeShape composite;
     composite.advance = advance;
+    if(mask) composite.mask = mask_from_c(*mask);
     composite.layers.reserve(static_cast<size_t>(layer_count));
     for(uint64_t i = 0; i < layer_count; ++i) {
       composite.layers.push_back(from_c(layers[i]));
