@@ -584,8 +584,9 @@
       (when (and (contains? paint :color)
                  (not (and (vector? color) (= 4 (count color)))))
         (throw (ex-info "paint color must have four components" {:op op :paint paint})))
-      (doseq [id [gradient-id pattern-id]]
-        (when (and id (not (and (integer? id) (pos? id))))
+      (doseq [[field id] [[:gradient-id gradient-id] [:pattern-id pattern-id]]]
+        (when (and (contains? paint field)
+                   (not (and (integer? id) (pos? id))))
           (throw (ex-info "paint ID must be a positive integer" {:op op :paint paint}))))
       {:color (mapv double (or color [0 0 0 1]))
        :gradient-id (or gradient-id 0)

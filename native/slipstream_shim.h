@@ -187,6 +187,8 @@ int ss_canvas_add_path(void* canvas, const void* path, const float* matrix) SS_N
 int ss_canvas_set_splits(
   void* canvas, const float* splits_x, uint64_t split_x_count,
   const float* splits_y, uint64_t split_y_count) SS_NOEXCEPT;
+/* Returned named keys borrow canvas-owned storage, valid until the next
+ * fill/stroke commit or canvas destruction. */
 int ss_canvas_fill(
   void* canvas, const void* path, const SSKey* key, SSColor color,
   float scale, uint32_t origin_type, float origin_x, float origin_y,

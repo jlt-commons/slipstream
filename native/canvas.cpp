@@ -22,6 +22,7 @@ struct NativeCanvas {
   slughorn::Atlas& atlas;
   Canvas canvas;
   std::vector<PaintOverride> overrides;
+  std::string returned_key_name;
 };
 
 NativeCanvas* require_canvas(void* handle) {
@@ -73,6 +74,15 @@ SSLayer to_c(const slughorn::Layer& layer) {
     layer.scale, layer.effectId, layer.effectParam, layer.gradientId, layer.patternId,
     layer.bleed, static_cast<uint8_t>(layer.drawMode), static_cast<uint8_t>(layer.blendMode)
   };
+}
+
+SSLayer layer_to_c(NativeCanvas& target, const slughorn::Layer& layer) {
+  auto out = to_c(layer);
+  if(layer.key.type() == slughorn::Key::Type::Name) {
+    target.returned_key_name = layer.key.name();
+    out.key.name = target.returned_key_name.c_str();
+  }
+  return out;
 }
 
 slughorn::Matrix matrix_from_c(const float* values) {
@@ -226,7 +236,7 @@ int ss_canvas_fill(
                   : target->canvas.fill(from_c(color), scale, origin);
     }
     record_paint(*target, previous, layer, gradient_id, pattern_id);
-    *out = to_c(layer);
+    *out = layer_to_c(*target, layer);
     return 0;
   );
 }
@@ -258,7 +268,7 @@ int ss_canvas_stroke(
                   : target->canvas.stroke(width, from_c(color), scale, origin, native_join, native_cap, miter_limit);
     }
     record_paint(*target, previous, layer, gradient_id, pattern_id);
-    *out = to_c(layer);
+    *out = layer_to_c(*target, layer);
     return 0;
   );
 }

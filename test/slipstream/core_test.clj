@@ -100,6 +100,10 @@
     (is (= (:curve-snapshot @copies) (vec (:curve @copies))))
     (is (= (:band-snapshot @copies) (vec (:band @copies))))))
 
+(deftest missing-composite-returns-nil
+  (slug/with-atlas [a {:texture-width 128}]
+    (is (nil? (slug/composite a :missing)))))
+
 (deftest composite-mesh-matches-reference-layout
   (slug/with-atlas [a {:texture-width 128}]
     (slug/add-shape! a "rect" rectangle-curves {})

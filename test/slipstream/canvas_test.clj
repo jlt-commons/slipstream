@@ -202,6 +202,10 @@
         (slug/path-command! p [:rect 0 0 1 1])
         (doseq [paint [{}
                        {:color nil}
+                       {:gradient-id nil}
+                       {:gradient-id false}
+                       {:pattern-id nil}
+                       {:pattern-id false}
                        {:color [1 0 0 1] :gradient-id 1}
                        {:gradient-id 1 :pattern-id 1}
                        {:color [1 0 0]}]]
@@ -218,3 +222,14 @@
           (is (some? error))
           (is (= :path-command! (:op (ex-data error))))
           (is (= "injected add-path failure" (:native-error (ex-data error)))))))))
+
+(deftest fill-and-stroke-return-stable-named-keys
+  (slug/with-atlas [a {:texture-width 128}]
+    (slug/with-canvas [c a {}]
+      (slug/with-path [p]
+        (slug/path-command! p [:rect 0 0 1 1])
+        (doseq [i (range 8)]
+          (let [fill-key (str (apply str (repeat 512 "fill-key-")) i)
+                stroke-key (str (apply str (repeat 512 "stroke-key-")) i)]
+            (is (= fill-key (:key (slug/fill! c p {:color [1 0 0 1]} {:key fill-key}))))
+            (is (= stroke-key (:key (slug/stroke! c p 0.1 {:color [0 1 0 1]} {:key stroke-key}))))))))))
