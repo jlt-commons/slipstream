@@ -231,3 +231,73 @@
       (is (= :mesh (:op (ex-data (capture-ex-info #(slug/mesh atlas))))))
       (finally
         (slug/destroy! atlas)))))
+
+(defn- cleanup-failure-result [compilation-failure?]
+  (let [original-make-atlas slug/make-atlas
+        original-make-path slug/make-path
+        original-build slug/build!
+        original-destroy slug/destroy!
+        atlas (atom nil)
+        paths (atom [])
+        attempts (atom [])
+        injected (atom false)]
+    (try
+      (with-redefs [slug/make-atlas (fn [& args]
+                                      (let [resource (apply original-make-atlas args)]
+                                        (reset! atlas resource)
+                                        resource))
+                    slug/make-path (fn [& args]
+                                     (let [resource (apply original-make-path args)]
+                                       (swap! paths conj resource)
+                                       resource))
+                    slug/build! (if compilation-failure?
+                                  (fn [& _]
+                                    (throw (ex-info "injected compilation failure"
+                                                    {:injected :compilation})))
+                                  original-build)
+                    slug/destroy! (fn [resource]
+                                    (let [kind (cond
+                                                 (instance? slipstream.core/Path resource) :path
+                                                 (instance? slipstream.core/Atlas resource) :atlas
+                                                 :else :other)]
+                                      (swap! attempts conj kind)
+                                      (original-destroy resource)
+                                      (when (and (= :path kind)
+                                                 (compare-and-set! injected false true))
+                                        (throw (ex-info "injected path cleanup failure"
+                                                        {:injected :path-cleanup})))))]
+        (let [error (capture-ex-info
+                      #(slug/compile [:scene
+                                      [:path {:id :first} [:rect 0 0 1 1]]
+                                      [:path {:id :second} [:rect 1 1 2 2]]
+                                      [:shape {:path :first}]
+                                      [:shape {:path :second}]]))]
+          {:error error
+           :path-count (count @paths)
+           :path-attempts (count (filter #(= :path %) @attempts))
+           :atlas-attempts (count (filter #(= :atlas %) @attempts))
+           :paths-destroyed (mapv #(deref (:destroyed? %)) @paths)
+           :atlas-destroyed (some-> @atlas :destroyed? deref)}))
+      (finally
+        (doseq [path @paths]
+          (original-destroy path))
+        (when @atlas
+          (original-destroy @atlas))))))
+
+(deftest path-cleanup-failure-destroys-atlas-and-attempts-every-path
+  (let [result (cleanup-failure-result false)]
+    (is (= :path-cleanup (:injected (ex-data (:error result)))))
+    (is (= 2 (:path-count result)))
+    (is (= 2 (:path-attempts result)))
+    (is (= 1 (:atlas-attempts result)))
+    (is (= [true true] (:paths-destroyed result)))
+    (is (true? (:atlas-destroyed result)))))
+
+(deftest compilation-failure-is-preserved-when-path-cleanup-also-fails
+  (let [result (cleanup-failure-result true)]
+    (is (= :compilation (:injected (ex-data (:error result)))))
+    (is (= 2 (:path-count result)))
+    (is (= 2 (:path-attempts result)))
+    (is (= 1 (:atlas-attempts result)))
+    (is (= [true true] (:paths-destroyed result)))
+    (is (true? (:atlas-destroyed result)))))

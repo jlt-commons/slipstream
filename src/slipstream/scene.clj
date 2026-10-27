@@ -572,6 +572,15 @@
   (or (contains? #{:shape :text :layer} (:tag node))
       (and (contains? #{:group :composite} (:tag node)) (nil? (:id node)))))
 
+(defn- destroy-temporary-paths [paths initial-error]
+  (reduce (fn [error path]
+            (try
+              (core/destroy! path)
+              error
+              (catch Throwable cleanup-error
+                (or error cleanup-error))))
+          initial-error paths))
+
 (defn compile [scene-data]
   (let [normalized (normalize scene-data)
         definitions (reduce (fn [result node]
@@ -580,24 +589,28 @@
                                 result))
                             {} (mapcat descendants (:children normalized)))
         atlas (core/make-atlas (:options normalized))
-        context {:atlas atlas :definitions definitions :cache (atom {}) :paths (atom [])}]
-    (try
-      (doseq [node (mapcat descendants (:children normalized))
-              :when (:id node)]
-        (realize context node))
-      (let [layers (vec (mapcat (fn [node]
-                                  (if (root-node? node)
-                                    (compile-child context node)
-                                    []))
-                                (:children normalized)))]
-        (core/build! atlas)
-        (core/->Scene atlas normalized layers (atom false)))
-      (catch Throwable error
+        context {:atlas atlas :definitions definitions :cache (atom {}) :paths (atom [])}
+        outcome (try
+                  (doseq [node (mapcat descendants (:children normalized))
+                          :when (:id node)]
+                    (realize context node))
+                  (let [layers (vec (mapcat (fn [node]
+                                              (if (root-node? node)
+                                                (compile-child context node)
+                                                []))
+                                            (:children normalized)))]
+                    (core/build! atlas)
+                    {:scene (core/->Scene atlas normalized layers (atom false))})
+                  (catch Throwable error
+                    {:error error}))
+        error (destroy-temporary-paths @(:paths context) (:error outcome))]
+    (when error
+      (try
         (core/destroy! atlas)
-        (throw error))
-      (finally
-        (doseq [path @(:paths context)]
-          (core/destroy! path))))))
+        (catch Throwable _)))
+    (if error
+      (throw error)
+      (:scene outcome))))
 
 (defmacro with-scene [binding & body]
   `(core/with-scene ~binding ~@body))
