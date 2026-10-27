@@ -83,6 +83,22 @@
                [[:units-per-em :float] [:cap-height-ratio :float]
                 [:x-height-ratio :float] [:ascender-ratio :float]
                 [:descender-ratio :float]]]))
+(def font-load-layout
+  (ffi/layout [:struct
+               [[:loaded :uint64]
+                [:metrics [:struct [[:units-per-em :float] [:cap-height-ratio :float]
+                                    [:x-height-ratio :float] [:ascender-ratio :float]
+                                    [:descender-ratio :float]]]]
+                [:family :pointer] [:style :pointer]]]))
+
+(ffi/defcfn font-load "ss_font_load"
+  [:pointer :string :pointer :uint64 :uint32 :bool :uint8 :pointer] :int32)
+(ffi/defcfn text-layout "ss_text_layout"
+  [:pointer :pointer :uint64 :float :float :float :pointer :pointer
+   :uint32 :uint32 :uint8 :pointer :uint64 :pointer] :int32)
+(ffi/defcfn canvas-text-layout "ss_canvas_text_layout"
+  [:pointer :pointer :uint64 :float :float :float :pointer :pointer
+   :uint32 :uint32 :uint8] :int32)
 
 (ffi/defcfn path-new "ss_path_new" [] :pointer)
 (ffi/defcfn path-destroy "ss_path_destroy" [:pointer] :int32)

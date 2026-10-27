@@ -663,6 +663,121 @@
 (def ^:private text-anchors {:baseline 0 :cap-center 1 :cap-top 2 :x-center 3})
 (def ^:private text-alignments {:left 0 :center 1 :right 2})
 
+(defn- call-with-codepoints [codepoints callback]
+  (let [codepoints (vec codepoints)
+        n (count codepoints)]
+    (ffi/with-alloc [p (max 1 (* 4 n))]
+      (ffi/write-array p :uint32 (int-array codepoints))
+      (callback p n))))
+
+(defn- read-font-load-result [p]
+  {:loaded (ffi/read-field p f/font-load-layout :loaded)
+   :metrics (into {}
+              (map (fn [field]
+                     [field (ffi/read-field p f/font-load-layout [:metrics field])])
+                   [:units-per-em :cap-height-ratio :x-height-ratio
+                    :ascender-ratio :descender-ratio]))
+   :family (ffi/ptr->string (ffi/read-field p f/font-load-layout :family))
+   :style (ffi/ptr->string (ffi/read-field p f/font-load-layout :style))})
+
+(defn- load-font* [atlas path codepoints mode {:keys [uniform mask]
+                                               :or {uniform false mask 0}} op]
+  (let [handle (live-handle atlas op)]
+    (when-not (and (integer? mask) (<= 0 mask 255))
+      (throw (ex-info "font mask must be a byte" {:op op :mask mask})))
+    (call-with-codepoints codepoints
+      (fn [codepoint-p n]
+        (ffi/with-layout [out f/font-load-layout]
+          (when-not (zero? (f/font-load handle (str path) codepoint-p n mode
+                                        (boolean uniform) mask out))
+            (native-failure op))
+          (read-font-load-result out))))))
+
+(defn load-font! [atlas path codepoints opts]
+  (doseq [cp codepoints]
+    (when-not (and (integer? cp) (<= 0 cp 0x10ffff))
+      (throw (ex-info "font codepoint must be a Unicode scalar value"
+                      {:op :load-font! :codepoint cp}))))
+  (load-font* atlas path codepoints 0 opts :load-font!))
+
+(defn load-ascii-font! [atlas path opts]
+  (load-font* atlas path [] 1 opts :load-ascii-font!))
+
+(defn load-all-font! [atlas path opts]
+  (load-font* atlas path [] 2 opts :load-all-font!))
+
+(defn- text-codepoints [text compatibility?]
+  (let [text (str text)]
+    (if compatibility?
+      (mapv #(bit-and (int %) 0xff) (.getBytes text "UTF-8"))
+      (mapv int text))))
+
+(defn- text-layout-input [text {:keys [font-size position color metrics align anchor mask
+                                       compatibility byte-wise byte-wise?]
+                                :or {font-size 1 position [0 0] color [0 0 0 1]
+                                     metrics {} align :left anchor :baseline mask 0}}]
+  (when-not (and (vector? position) (= 2 (count position))
+                 (vector? color) (= 4 (count color)))
+    (throw (ex-info "text requires a two-component position and four-component color"
+                    {:op :text-layers :position position :color color})))
+  (when-not (and (integer? mask) (<= 0 mask 255))
+    (throw (ex-info "text mask must be a byte" {:op :text-layers :mask mask})))
+  {:codepoints (text-codepoints text (or compatibility byte-wise byte-wise?))
+   :font-size (double font-size)
+   :x (double (first position))
+   :y (double (second position))
+   :color (mapv double color)
+   :metrics metrics
+   :align (enum-value align text-alignments :align)
+   :anchor (enum-value anchor text-anchors :anchor)
+   :mask mask})
+
+(defn- write-font-metrics! [p metrics]
+  (doseq [field [:units-per-em :cap-height-ratio :x-height-ratio
+                 :ascender-ratio :descender-ratio]]
+    (ffi/write-field p f/font-metrics-layout field (double (get metrics field 0)))))
+
+(defn text-layers [atlas text opts]
+  (let [handle (live-handle atlas :text-layers)
+        {:keys [codepoints font-size x y color metrics align anchor mask]}
+        (text-layout-input text opts)]
+    (call-with-codepoints codepoints
+      (fn [codepoint-p n]
+        (call-with-color color
+          (fn [color-p]
+            (ffi/with-layout [metrics-p f/font-metrics-layout]
+              (write-font-metrics! metrics-p metrics)
+              (ffi/with-out [count-p :uint64]
+                (when-not (zero? (f/text-layout handle codepoint-p n font-size x y
+                                                color-p metrics-p anchor align mask
+                                                0 0 count-p))
+                  (native-failure :text-layers))
+                (let [layer-count (ffi/read count-p :uint64 0)
+                      size (ffi/layout-size f/layer-layout)]
+                  (ffi/with-alloc [layer-p (max 1 (* layer-count size))]
+                    (when-not (zero? (f/text-layout handle codepoint-p n font-size x y
+                                                    color-p metrics-p anchor align mask
+                                                    layer-p layer-count count-p))
+                      (native-failure :text-layers))
+                    (mapv #(read-layer (+ layer-p (* % size))) (range layer-count))))))))))))
+
+(defn layout-text! [canvas atlas text opts]
+  (let [handle (live-canvas canvas :layout-text!)]
+    (live-handle atlas :layout-text!)
+    (let [{:keys [codepoints font-size x y color metrics align anchor mask]}
+          (text-layout-input text opts)]
+      (call-with-codepoints codepoints
+        (fn [codepoint-p n]
+          (call-with-color color
+            (fn [color-p]
+              (ffi/with-layout [metrics-p f/font-metrics-layout]
+                (write-font-metrics! metrics-p metrics)
+                (when-not (zero? (f/canvas-text-layout
+                                   handle codepoint-p n font-size x y color-p metrics-p
+                                   anchor align mask))
+                  (native-failure :layout-text!))))))))
+  canvas))
+
 (defn text! [canvas text {:keys [size at color metrics anchor-y align-x mask]
                           :or {size 1 at [0 0] color [0 0 0 1] metrics {}
                                anchor-y :baseline align-x :left mask 0}}]

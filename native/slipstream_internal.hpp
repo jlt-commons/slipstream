@@ -1,8 +1,10 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <stdexcept>
+#include <vector>
 
 #include "slughorn/slughorn.hpp"
 
@@ -34,6 +36,12 @@ inline slughorn::Atlas* require_atlas(void* handle) {
   }
   return static_cast<slughorn::Atlas*>(handle);
 }
+
+std::vector<slughorn::Layer> layout_text(
+  slughorn::Atlas& atlas, const uint32_t* codepoints, std::size_t count,
+  float font_size, float x, float y, slughorn::Color color,
+  const slughorn::FontMetrics& metrics, uint32_t anchor_y, uint32_t align_x,
+  uint8_t mask);
 
 }
 

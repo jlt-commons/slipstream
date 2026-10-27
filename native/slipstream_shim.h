@@ -150,6 +150,25 @@ typedef struct SSFontMetrics {
   float ascender_ratio, descender_ratio;
 } SSFontMetrics;
 
+typedef struct SSFontLoadResult {
+  uint64_t loaded;
+  SSFontMetrics metrics;
+  const char* family; /* borrowed until the next ss_font_load on this thread */
+  const char* style; /* borrowed until the next ss_font_load on this thread */
+} SSFontLoadResult;
+
+/* mode: 0 = explicit codepoints, 1 = printable ASCII, 2 = full charmap. */
+int ss_font_load(
+  void* atlas, const char* path, const uint32_t* codepoints, uint64_t codepoint_count,
+  uint32_t mode, bool uniform, uint8_t mask, SSFontLoadResult* out) SS_NOEXCEPT;
+
+/* A null layers pointer queries count. Otherwise capacity must be sufficient. */
+int ss_text_layout(
+  void* atlas, const uint32_t* codepoints, uint64_t codepoint_count,
+  float font_size, float x, float y, const SSColor* color,
+  const SSFontMetrics* metrics, uint32_t anchor_y, uint32_t align_x, uint8_t mask,
+  SSLayer* layers, uint64_t capacity, uint64_t* count) SS_NOEXCEPT;
+
 /* Path command IDs and their required float counts:
  * 0 clear/0, 1 save/0, 2 restore/0, 3 reset-transform/0,
  * 4 set-transform/6, 5 transform/6, 6 translate/2, 7 rotate/1, 8 scale/2,
@@ -203,6 +222,11 @@ int ss_canvas_define_shape(
   uint32_t origin_type, float origin_x, float origin_y) SS_NOEXCEPT;
 int ss_canvas_text(
   void* canvas, const char* text, float font_size, float x, float y, SSColor color,
+  const SSFontMetrics* metrics, uint32_t anchor_y, uint32_t align_x,
+  uint8_t mask) SS_NOEXCEPT;
+int ss_canvas_text_layout(
+  void* canvas, const uint32_t* codepoints, uint64_t codepoint_count,
+  float font_size, float x, float y, const SSColor* color,
   const SSFontMetrics* metrics, uint32_t anchor_y, uint32_t align_x,
   uint8_t mask) SS_NOEXCEPT;
 int ss_canvas_finalize(void* canvas, const SSKey* key) SS_NOEXCEPT;

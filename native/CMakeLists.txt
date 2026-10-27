@@ -36,6 +36,7 @@ add_library(slipstream SHARED
   mesh.cpp
   path.cpp
   canvas.cpp
+  freetype.cpp
   "${SLUGHORN_HOME}/slughorn/slughorn.cpp")
 target_include_directories(slipstream PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
