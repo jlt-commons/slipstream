@@ -18,18 +18,10 @@ struct PaintOverride {
 };
 
 struct NativeCanvas {
-  struct TextInsertion {
-    size_t layer_index;
-    std::vector<slughorn::Layer> layers;
-  };
-
   NativeCanvas(slughorn::Atlas& owner, uint32_t key_start): atlas(owner), canvas(owner, slughorn::KeyIterator(key_start)) {}
   slughorn::Atlas& atlas;
   Canvas canvas;
   std::vector<PaintOverride> overrides;
-  std::vector<TextInsertion> text_insertions;
-  slughorn::Matrix ctm;
-  std::vector<slughorn::Matrix> ctm_stack;
   std::string returned_key_name;
 };
 
@@ -169,25 +161,17 @@ int ss_canvas_command(
   void* canvas, uint32_t command, const float* values, uint64_t count
 ) noexcept {
   ss_try(-1,
-    auto* target = require_canvas(canvas);
-    auto& c = target->canvas;
+    auto& c = require_canvas(canvas)->canvas;
     switch(command) {
       case 0: require_values(values, count, 0); c.beginPath(); break;
-      case 1: require_values(values, count, 0); c.save(); target->ctm_stack.push_back(target->ctm); break;
-      case 2:
-        require_values(values, count, 0);
-        c.restore();
-        if(!target->ctm_stack.empty()) {
-          target->ctm = target->ctm_stack.back();
-          target->ctm_stack.pop_back();
-        }
-        break;
-      case 3: require_values(values, count, 0); c.resetTransform(); target->ctm = slughorn::Matrix::identity(); break;
-      case 4: require_values(values, count, 6); c.setTransform(matrix_from_c(values)); target->ctm = matrix_from_c(values); break;
-      case 5: require_values(values, count, 6); c.transform(matrix_from_c(values)); target->ctm = target->ctm * matrix_from_c(values); break;
-      case 6: require_values(values, count, 2); c.translate(values[0], values[1]); target->ctm = target->ctm * slughorn::Matrix::translate(values[0], values[1]); break;
-      case 7: require_values(values, count, 1); c.rotate(values[0]); target->ctm = target->ctm * slughorn::Matrix::rotate(values[0]); break;
-      case 8: require_values(values, count, 2); c.scale(values[0], values[1]); target->ctm = target->ctm * slughorn::Matrix::scale(values[0], values[1]); break;
+      case 1: require_values(values, count, 0); c.save(); break;
+      case 2: require_values(values, count, 0); c.restore(); break;
+      case 3: require_values(values, count, 0); c.resetTransform(); break;
+      case 4: require_values(values, count, 6); c.setTransform(matrix_from_c(values)); break;
+      case 5: require_values(values, count, 6); c.transform(matrix_from_c(values)); break;
+      case 6: require_values(values, count, 2); c.translate(values[0], values[1]); break;
+      case 7: require_values(values, count, 1); c.rotate(values[0]); break;
+      case 8: require_values(values, count, 2); c.scale(values[0], values[1]); break;
       case 9: require_values(values, count, 2); c.moveTo(values[0], values[1]); break;
       case 10: require_values(values, count, 2); c.lineTo(values[0], values[1]); break;
       case 11: require_values(values, count, 4); c.quadTo(values[0], values[1], values[2], values[3]); break;
@@ -199,7 +183,7 @@ int ss_canvas_command(
       case 17: require_values(values, count, 4); c.ellipse(values[0], values[1], values[2], values[3]); break;
       case 18: require_values(values, count, 6); c.arc(values[0], values[1], values[2], values[3], values[4], values[5] != 0); break;
       case 19: require_values(values, count, 5); c.arcTo(values[0], values[1], values[2], values[3], values[4]); break;
-      case 20: require_values(values, count, 0); c.beginComposite(); target->overrides.clear(); target->text_insertions.clear(); break;
+      case 20: require_values(values, count, 0); c.beginComposite(); require_canvas(canvas)->overrides.clear(); break;
       case 21: require_values(values, count, 1); c.setAdvance(values[0]); break;
       case 22: require_values(values, count, 1); c.setAutoMetrics(values[0] != 0); break;
       case 23: require_values(values, count, 2); c.setSDF(values[0] != 0, values[1]); break;
@@ -325,70 +309,18 @@ int ss_canvas_text(
   );
 }
 
-int ss_canvas_text_layout(
-  void* canvas, const uint32_t* codepoints, uint64_t codepoint_count,
-  float font_size, float x, float y, const SSColor* color,
-  const SSFontMetrics* metrics, uint32_t anchor_y, uint32_t align_x, uint8_t mask
-) noexcept {
-  ss_try(-1,
-    auto* target = require_canvas(canvas);
-    if(!color) throw std::invalid_argument("text color is null");
-    if(!metrics) throw std::invalid_argument("font metrics are null");
-    if(codepoint_count > SIZE_MAX) throw std::invalid_argument("text codepoint count is too large");
-    const slughorn::FontMetrics native_metrics{
-      metrics->units_per_em, metrics->cap_height_ratio, metrics->x_height_ratio,
-      metrics->ascender_ratio, metrics->descender_ratio
-    };
-    float tx, ty;
-    target->ctm.apply(x, y, tx, ty);
-    auto layers = slipstream::layout_text(
-      target->atlas, codepoints, static_cast<size_t>(codepoint_count),
-      font_size, tx, ty, from_c(*color), native_metrics, anchor_y, align_x, mask);
-    if(!layers.empty()) {
-      target->text_insertions.push_back({target->canvas.layerCount(), std::move(layers)});
-    }
-    return 0;
-  );
-}
-
 int ss_canvas_finalize(void* canvas, const SSKey* key) noexcept {
   ss_try(-1,
     auto* target = require_canvas(canvas);
     auto composite = target->canvas.finalize();
-    const size_t original_count = composite.layers.size();
-    std::vector<size_t> remapped_indices(original_count);
-
-    if(!target->text_insertions.empty()) {
-      std::vector<slughorn::Layer> merged;
-      size_t original_index = 0;
-      for(const auto& insertion : target->text_insertions) {
-        if(insertion.layer_index > original_count) {
-          throw std::runtime_error("canvas text insertion is out of range");
-        }
-        while(original_index < insertion.layer_index) {
-          remapped_indices[original_index] = merged.size();
-          merged.push_back(std::move(composite.layers[original_index++]));
-        }
-        merged.insert(merged.end(), insertion.layers.begin(), insertion.layers.end());
-      }
-      while(original_index < original_count) {
-        remapped_indices[original_index] = merged.size();
-        merged.push_back(std::move(composite.layers[original_index++]));
-      }
-      composite.layers = std::move(merged);
-    }
-
     for(const auto& paint : target->overrides) {
-      if(paint.layer_index >= original_count) {
+      if(paint.layer_index >= composite.layers.size()) {
         throw std::runtime_error("canvas paint override is out of range");
       }
-      const size_t layer_index = target->text_insertions.empty()
-        ? paint.layer_index : remapped_indices[paint.layer_index];
-      composite.layers[layer_index].gradientId = paint.gradient_id;
-      composite.layers[layer_index].patternId = paint.pattern_id;
+      composite.layers[paint.layer_index].gradientId = paint.gradient_id;
+      composite.layers[paint.layer_index].patternId = paint.pattern_id;
     }
     target->overrides.clear();
-    target->text_insertions.clear();
     target->atlas.addCompositeShape(from_c(key), std::move(composite));
     return 0;
   );

@@ -96,10 +96,6 @@
 (ffi/defcfn text-layout "ss_text_layout"
   [:pointer :pointer :uint64 :float :float :float :pointer :pointer
    :uint32 :uint32 :uint8 :pointer :uint64 :pointer] :int32)
-(ffi/defcfn canvas-text-layout "ss_canvas_text_layout"
-  [:pointer :pointer :uint64 :float :float :float :pointer :pointer
-   :uint32 :uint32 :uint8] :int32)
-
 (ffi/defcfn path-new "ss_path_new" [] :pointer)
 (ffi/defcfn path-destroy "ss_path_destroy" [:pointer] :int32)
 (ffi/defcfn path-command "ss_path_command" [:pointer :uint32 :pointer :uint64] :int32)

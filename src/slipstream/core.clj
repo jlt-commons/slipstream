@@ -764,18 +764,15 @@
 (defn layout-text! [canvas atlas text opts]
   (let [handle (live-canvas canvas :layout-text!)]
     (live-handle atlas :layout-text!)
-    (let [{:keys [codepoints font-size x y color metrics align anchor mask]}
+    (let [{:keys [font-size x y color metrics align anchor mask]}
           (text-layout-input text opts)]
-      (call-with-codepoints codepoints
-        (fn [codepoint-p n]
-          (call-with-color color
-            (fn [color-p]
-              (ffi/with-layout [metrics-p f/font-metrics-layout]
-                (write-font-metrics! metrics-p metrics)
-                (when-not (zero? (f/canvas-text-layout
-                                   handle codepoint-p n font-size x y color-p metrics-p
-                                   anchor align mask))
-                  (native-failure :layout-text!))))))))
+      (call-with-color color
+        (fn [color-p]
+          (ffi/with-layout [metrics-p f/font-metrics-layout]
+            (write-font-metrics! metrics-p metrics)
+            (when-not (zero? (f/canvas-text handle (str text) font-size x y color-p
+                                            metrics-p anchor align mask))
+              (native-failure :layout-text!))))))
   canvas))
 
 (defn text! [canvas text {:keys [size at color metrics anchor-y align-x mask]

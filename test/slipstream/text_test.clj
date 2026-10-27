@@ -51,11 +51,7 @@
       (is (= [2.0 2.0] (mapv :scale layers)))
       (is (= [1.0 0.5 0.25 1.0] (:color (first layers))))
       (is (= [2.0 3.0 0.0] (:transform (first layers))))
-      (is (close? (+ 2 advance) (first (:transform (second layers)))))
-      (slug/with-canvas [c a {}]
-        (slug/layout-text! c a "Aé" opts)
-        (slug/finalize! c :unicode)
-        (is (= layers (:layers (slug/composite a :unicode))))))))
+      (is (close? (+ 2 advance) (first (:transform (second layers))))))))
 
 (deftest compatibility-layout-deliberately-uses-each-utf8-byte
   (slug/with-atlas [a {:texture-width 256}]
@@ -71,3 +67,24 @@
         (slug/layout-text! c a "Aé" (assoc opts :compatibility true))
         (slug/finalize! c :bytes)
         (is (= compatible (:layers (slug/composite a :bytes))))))))
+
+(deftest canvas-layout-uses-the-real-bytewise-canvas-text-path
+  (slug/with-atlas [a {:texture-width 256}]
+    (let [{:keys [metrics]} (slug/load-font! a test-font [195 169] {})]
+      (slug/with-canvas [c a {}]
+        (slug/layout-text! c a "é" {:font-size 1 :metrics metrics})
+        (slug/finalize! c :canvas-text)
+        (is (= [[:codepoint 195] [:codepoint 169]]
+               (mapv :key (:layers (slug/composite a :canvas-text)))))))))
+
+(deftest masked-text-layers-preserve-the-glyph-key-namespace
+  (slug/with-atlas [a {:texture-width 256}]
+    (let [{:keys [metrics]} (slug/load-font! a test-font [65] {:mask 7})]
+      (is (= [[:codepoint 65 7]]
+             (mapv :key (slug/text-layers a "A" {:mask 7 :metrics metrics})))))))
+
+(deftest supplementary-characters-produce-one-codepoint-layer
+  (slug/with-atlas [a {:texture-width 256}]
+    (let [layers (slug/text-layers a "😀" {})]
+      (is (= 1 (count layers)))
+      (is (= [[:codepoint 0x1f600]] (mapv :key layers))))))

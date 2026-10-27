@@ -224,11 +224,6 @@ int ss_canvas_text(
   void* canvas, const char* text, float font_size, float x, float y, SSColor color,
   const SSFontMetrics* metrics, uint32_t anchor_y, uint32_t align_x,
   uint8_t mask) SS_NOEXCEPT;
-int ss_canvas_text_layout(
-  void* canvas, const uint32_t* codepoints, uint64_t codepoint_count,
-  float font_size, float x, float y, const SSColor* color,
-  const SSFontMetrics* metrics, uint32_t anchor_y, uint32_t align_x,
-  uint8_t mask) SS_NOEXCEPT;
 int ss_canvas_finalize(void* canvas, const SSKey* key) SS_NOEXCEPT;
 int ss_canvas_set_mask(void* canvas, const SSMask* mask) SS_NOEXCEPT;
 int ss_canvas_mask_path(void* canvas, float range, bool invert, SSMask* out) SS_NOEXCEPT;
