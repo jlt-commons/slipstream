@@ -1,0 +1,39 @@
+{:paths ["src"]
+ :deps {}
+
+ :jolt/native [{:name "slipstream"
+                :darwin ["native/libslipstream.dylib"]
+                :linux ["native/libslipstream.so"]}]
+
+ :aliases {:test {:extra-paths ["test"]
+                  :main-opts ["-m" "slipstream.test-runner"]}}
+
+ :tasks {:requires ([babashka.fs :as fs])
+         :init (def lib (str "native/libslipstream."
+                             (if (re-find #"^Mac" (System/getProperty "os.name"))
+                               "dylib"
+                               "so")))
+
+         native {:doc "build the Slughorn shim if its sources changed"
+                 :task (let [slughorn (or (System/getenv "SLUGHORN_HOME")
+                                          (str (System/getProperty "user.home") "/src/slughorn"))
+                             sources ["native/CMakeLists.txt"
+                                      "native/slipstream_shim.h"
+                                      "native/slipstream_internal.hpp"
+                                      "native/atlas.cpp"
+                                      (str slughorn "/slughorn/slughorn.cpp")
+                                      (str slughorn "/slughorn/slughorn.hpp")
+                                      "deps.edn"]]
+                         (if (or (not (fs/exists? lib))
+                                 (seq (fs/modified-since lib sources)))
+                           (do
+                             (shell "cmake" "-S" "native" "-B" "native/build"
+                                    "-DCMAKE_BUILD_TYPE=Release")
+                             (shell "cmake" "--build" "native/build"
+                                    "--config" "Release" "--parallel")
+                             (println "built:" lib))
+                           (println "up to date:" lib)))}
+
+         test {:doc "unit tests"
+               :depends [native]
+               :task (jolt "-M:test")}}}
