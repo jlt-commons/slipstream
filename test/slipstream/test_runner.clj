@@ -1,6 +1,7 @@
 (ns slipstream.test-runner
   (:require [clojure.test :as t]
-            [slipstream.core-test]))
+            [slipstream.core-test]
+            [slipstream.canvas-test]))
 
 (defn- exit [code]
   (cond
@@ -9,5 +10,5 @@
     :else nil))
 
 (defn -main [& _]
-  (let [{:keys [fail error]} (t/run-tests 'slipstream.core-test)]
+  (let [{:keys [fail error]} (t/run-tests 'slipstream.core-test 'slipstream.canvas-test)]
     (exit (if (zero? (+ fail error)) 0 1))))

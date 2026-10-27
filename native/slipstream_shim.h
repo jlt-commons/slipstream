@@ -128,6 +128,85 @@ int ss_mesh_destroy(void* mesh) SS_NOEXCEPT;
 int ss_atlas_write(void* atlas, const char* path) SS_NOEXCEPT;
 void* ss_atlas_read(const char* path) SS_NOEXCEPT;
 
+typedef struct SSPathSample {
+  float x, y, angle, arc_length;
+} SSPathSample;
+
+typedef struct SSGradientStop {
+  float t;
+  SSColor color;
+} SSGradientStop;
+
+typedef struct SSMask {
+  SSKey key;
+  float params[6];
+  uint8_t type;
+  uint8_t invert;
+  uint8_t has_key;
+} SSMask;
+
+typedef struct SSFontMetrics {
+  float units_per_em, cap_height_ratio, x_height_ratio;
+  float ascender_ratio, descender_ratio;
+} SSFontMetrics;
+
+/* Path command IDs and their required float counts:
+ * 0 clear/0, 1 save/0, 2 restore/0, 3 reset-transform/0,
+ * 4 set-transform/6, 5 transform/6, 6 translate/2, 7 rotate/1, 8 scale/2,
+ * 9 move-to/2, 10 line-to/2, 11 quad-to/4, 12 bezier-to/6, 13 close/0,
+ * 14 rect/4, 15 rounded-rect/5, 16 circle/3, 17 ellipse/4, 18 arc/6,
+ * 19 arc-to/5. Canvas additionally accepts 20 begin-composite/0,
+ * 21 set-advance/1, 22 set-auto-metrics/1, 23 set-sdf/2, 24 clear-splits/0. */
+void* ss_path_new(void) SS_NOEXCEPT;
+int ss_path_destroy(void* path) SS_NOEXCEPT;
+int ss_path_command(
+  void* path, uint32_t command, const float* values, uint64_t count) SS_NOEXCEPT;
+int ss_path_add(void* path, const void* source, const float* matrix) SS_NOEXCEPT;
+int ss_path_sample(const void* path, float t, SSPathSample* out) SS_NOEXCEPT;
+int ss_path_arc_length(const void* path, float* out) SS_NOEXCEPT;
+int ss_path_stroke(
+  void* path, float width, bool clockwise, uint32_t join, uint32_t cap,
+  float miter_limit) SS_NOEXCEPT;
+
+/* Geometry has four floats: linear x0,y0,x1,y1; radial cx,cy,r0,r1;
+ * sweep cx,cy,start-angle,end-angle. Returns a 1-based ID or -1 on failure. */
+int64_t ss_atlas_add_gradient(
+  void* atlas, uint32_t type, const float* geometry, uint64_t geometry_count,
+  const SSGradientStop* stops, uint64_t stop_count) SS_NOEXCEPT;
+int64_t ss_atlas_add_pattern(
+  void* atlas, const SSKey* tile, const float* cell, const float* matrix,
+  uint32_t repeat_x, uint32_t repeat_y) SS_NOEXCEPT;
+int ss_atlas_get_composite_mask(
+  void* atlas, const SSKey* key, SSMask* out) SS_NOEXCEPT;
+
+void* ss_canvas_new(void* atlas, uint32_t key_start) SS_NOEXCEPT;
+int ss_canvas_destroy(void* canvas) SS_NOEXCEPT;
+int ss_canvas_command(
+  void* canvas, uint32_t command, const float* values, uint64_t count) SS_NOEXCEPT;
+int ss_canvas_add_path(void* canvas, const void* path, const float* matrix) SS_NOEXCEPT;
+int ss_canvas_set_splits(
+  void* canvas, const float* splits_x, uint64_t split_x_count,
+  const float* splits_y, uint64_t split_y_count) SS_NOEXCEPT;
+int ss_canvas_fill(
+  void* canvas, const void* path, const SSKey* key, SSColor color,
+  float scale, uint32_t origin_type, float origin_x, float origin_y,
+  uint32_t gradient_id, uint32_t pattern_id, SSLayer* out) SS_NOEXCEPT;
+int ss_canvas_stroke(
+  void* canvas, const void* path, const SSKey* key, float width, SSColor color,
+  float scale, uint32_t origin_type, float origin_x, float origin_y,
+  uint32_t join, uint32_t cap, float miter_limit,
+  uint32_t gradient_id, uint32_t pattern_id, SSLayer* out) SS_NOEXCEPT;
+int ss_canvas_define_shape(
+  void* canvas, const void* path, const SSKey* key, float scale,
+  uint32_t origin_type, float origin_x, float origin_y) SS_NOEXCEPT;
+int ss_canvas_text(
+  void* canvas, const char* text, float font_size, float x, float y, SSColor color,
+  const SSFontMetrics* metrics, uint32_t anchor_y, uint32_t align_x,
+  uint8_t mask) SS_NOEXCEPT;
+int ss_canvas_finalize(void* canvas, const SSKey* key) SS_NOEXCEPT;
+int ss_canvas_set_mask(void* canvas, const SSMask* mask) SS_NOEXCEPT;
+int ss_canvas_mask_path(void* canvas, float range, bool invert, SSMask* out) SS_NOEXCEPT;
+
 #ifdef __cplusplus
 }
 #endif

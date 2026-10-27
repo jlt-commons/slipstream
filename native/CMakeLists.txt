@@ -34,6 +34,8 @@ add_library(slipstream SHARED
   atlas.cpp
   shapes.cpp
   mesh.cpp
+  path.cpp
+  canvas.cpp
   "${SLUGHORN_HOME}/slughorn/slughorn.cpp")
 target_include_directories(slipstream PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"

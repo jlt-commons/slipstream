@@ -26,8 +26,11 @@
                                       "native/atlas.cpp"
                                       "native/shapes.cpp"
                                       "native/mesh.cpp"
+                                      "native/path.cpp"
+                                      "native/canvas.cpp"
                                       (str slughorn "/slughorn/slughorn.cpp")
                                       (str slughorn "/slughorn/slughorn.hpp")
+                                      (str slughorn "/slughorn/canvas.hpp")
                                       (str slughorn "/slughorn/serial.hpp")
                                       "deps.edn"]]
                          (if (or (not= slughorn configured)
