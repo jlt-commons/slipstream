@@ -348,14 +348,23 @@
             (is (not= (hash (vec (:pixels before-frame)))
                       (hash (vec (:pixels after-frame))))
                 "the redefined palette must render in the existing window")
-            (is (= [{:profile :text :intensity 2 :sdf false}]
-                   (evaluate (str "(slipstream.example.demoscene/load-profile! :text "
-                                  "{:intensity 2 :sdf false})"))))
-            (let [{profile-context :context profile-frame :frame} (capture-live-frame)]
-              (is (identical? after-context profile-context))
-              (is (not= (hash (vec (:pixels after-frame)))
-                        (hash (vec (:pixels profile-frame))))
-                  "the nREPL profile change must render in the existing window"))))
+            (evaluate (str "(swap! slipstream.example.demoscene/state assoc "
+                           ":metrics false :metrics-text nil)"))
+            (let [{frozen-context :context frozen-frame :frame} (capture-live-frame)
+                  {stable-context :context stable-frame :frame} (capture-live-frame)]
+              (is (identical? after-context frozen-context))
+              (is (identical? frozen-context stable-context))
+              (is (= (hash (vec (:pixels frozen-frame)))
+                     (hash (vec (:pixels stable-frame))))
+                  "identity update-state and hidden metrics must freeze the rendered frame")
+              (is (= [{:profile :text :intensity 2 :sdf false}]
+                     (evaluate (str "(slipstream.example.demoscene/load-profile! :text "
+                                    "{:intensity 2 :sdf false})"))))
+              (let [{profile-context :context profile-frame :frame} (capture-live-frame)]
+                (is (identical? stable-context profile-context))
+                (is (not= (hash (vec (:pixels stable-frame)))
+                          (hash (vec (:pixels profile-frame))))
+                    "the nREPL profile change must render in the existing frozen window")))))
         (is (= [0]
                (evaluate (str "(do (slipstream.example.demoscene/reset-metrics!) "
                               "(:sample-count (slipstream.example.demoscene/metrics-snapshot)))"))))
