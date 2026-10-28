@@ -1,5 +1,5 @@
 {:paths ["src" "example"]
- :deps {}
+ :deps {jolt-lang/glimmer {:local/root "/Users/yogthos/src/jolt-lang/glimmer"}}
 
  :jolt/native [{:name "slipstream"
                 :darwin ["native/libslipstream.dylib"]
