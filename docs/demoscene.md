@@ -38,11 +38,11 @@ GUI runs require a working display and OpenGL context. Building native code or l
 
 ## Controls
 
-- **Move the pointer** to attract the constellation and warp the procedural field.
-- **Left-click** to emit a burst. The trigger is edge-sensitive rather than repeating while held.
-- **Space** toggles the orbital/constellation-to-grid transition. Holding it does not repeatedly toggle.
+- **Move the pointer** to warp the procedural field immediately and attract the constellation through dt-based damping.
+- **Left-click or hold** to boost burst energy fully. Releasing the button lets the burst decay; pressing again restores the boost.
+- **Right-click or Space** toggles the orbital/constellation-to-grid transition on each new press. Holding either input does not repeatedly toggle, and pressing both together is one logical toggle.
 - **Mouse wheel** changes procedural density, clamped to `0.25..4.0`.
-- **R** resets animation and interaction state while preserving the current aspect ratio and font.
+- **R** resets animation and interaction state while preserving the current bounds, aspect ratio, nREPL port, and font.
 - **Close the native window**, or evaluate `stop!` through nREPL, to shut down.
 
 The compatibility `slipstream.example.glfw` controls are separate; in particular, its orbit-camera and Esc bindings are not the demoscene controls.
@@ -52,17 +52,19 @@ The compatibility `slipstream.example.glfw` controls are separate; in particular
 The example is split into two namespaces:
 
 - `slipstream.example.demoscene` owns application lifecycle, the rich nREPL server, native input polling, and the Glimmer UI loop.
-- `slipstream.example.demoscene-shader` owns visual state, palette and shader sources, deterministic state updates, vector definitions, and scene generation.
+- `slipstream.example.demoscene-shader` owns visual state, palette and shader sources, deterministic state updates, staged vector definitions, and scene generation.
 
-`demo/state` is a `defonce` Glimmer ratom. Its initial keys include animation `:time`, `:transition` and `:transition-target`, `:mouse`, `:density`, `:speed`, `:burst`, button/key state, `:aspect`, and per-vector overrides under `:vectors`.
+`demo/state` is a `defonce` Glimmer ratom. Its initial keys include animation `:time`, `:transition` and `:transition-target`, raw scene-space `:mouse`, damped `:attraction`, `:density`, `:speed`, `:burst`, button/key state, `:bounds`, `:aspect`, `:nrepl-port`, `:geometry-stage`, and per-vector overrides under `:vectors`.
 
 `demo/app` reads that ratom and calls `visuals/scene-for-state`. The scene contains:
 
 - one full-bounds shape running the hybrid waves/Voronoi fragment effect;
 - twelve keyed vector nodes with independent paths, fills, placement, SDF/MSDF, and effects;
-- static HUD text nodes, so changing numeric uniforms does not churn glyph atlases.
+- title, status, and controls HUD text. Status shows the selected waves/Voronoi mode, density, speed, and actual bound nREPL address. Its text changes only when one of those displayed values changes, so animation-only frames reuse the same glyph resources.
 
-After every render, the UI thread reads a native input snapshot, maps the cursor into scene bounds, and calls `visuals/update-state`. Uniform, color, and orbit changes update draw layers without rebuilding native geometry. Editing one vector path rebuilds only that vector's resource.
+After every render, the UI thread reads a native input snapshot, maps the cursor into the complete scene bounds, and calls `visuals/update-state`. The first rendered frame uses a zero timestep; native startup and shader compilation are never included in simulation time. Uniform, color, damped attraction, and orbit changes update draw layers without rebuilding native geometry.
+
+Automatic geometry stages cross explicit simulation-time thresholds: at `4.5s`, vectors `0` and `7` change paths; at `7.5s`, vectors `5` and `10` change paths. These changes are cumulative and rebuild only the intended vector resources. Manual per-vector path edits through nREPL have the same targeted behavior.
 
 ## Rich nREPL connection
 
@@ -145,7 +147,7 @@ Options:
 - `:font-path` — required TTF/OTF path.
 - `:port` — default `7888`; `0` selects an OS-assigned port.
 - `:width`, `:height` — defaults `960`, `640`.
-- `:bounds` — optional `[left right bottom top]`; when supplied, its aspect takes precedence over width/height.
+- `:bounds` — optional `[left right bottom top]`; when supplied, its aspect takes precedence over width/height. Arbitrary supported bounds (including nonzero/negative origins) drive the background, vector and HUD placement, shader mouse normalization, and native cursor mapping; they are not reduced to aspect alone.
 - `:capture-dir` — optional directory for the demo's first-frame/two-second-interval PPM capture callback.
 - `:max-frames`, `:auto-quit-ms` — optional UI-loop stop conditions; both default to nil.
 

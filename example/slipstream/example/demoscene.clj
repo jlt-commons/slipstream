@@ -16,17 +16,20 @@
 (defonce ^:private lifecycle (atom nil))
 
 (defn app
-  ([font-path] (app font-path (:aspect @state)))
-  ([font-path aspect]
-   (visuals/scene-for-state (assoc @state :font font-path :aspect aspect))))
+  ([font-path] (app font-path (:aspect @state) (:bounds @state)))
+  ([font-path aspect] (app font-path aspect [0 aspect 0 1]))
+  ([font-path aspect bounds]
+   (visuals/scene-for-state
+     (assoc @state :font font-path :aspect aspect :bounds bounds))))
 
-(defn- advance-from-native-input! [previous-frame]
+(defn- advance-from-native-input! [previous-frame bounds]
   (when-let [context (sg/current-context)]
     (let [now (System/nanoTime)
-          dt (/ (- now @previous-frame) 1000000000.0)]
+          previous @previous-frame
+          dt (if previous (/ (- now previous) 1000000000.0) 0.0)]
       (reset! previous-frame now)
       (let [input (renderer/input-snapshot context)
-            mouse (renderer/cursor->bounds context [0 1 0 1])]
+            mouse (renderer/cursor->bounds context bounds)]
         (swap! state visuals/update-state dt (assoc input :mouse mouse))))))
 
 (defn- write-ppm! [path {:keys [width height pixels]}]
@@ -125,9 +128,12 @@
                          (/ (- (nth bounds 1) (nth bounds 0))
                             (- (nth bounds 3) (nth bounds 2)))
                          (/ (double width) height))
-                previous-frame (atom (System/nanoTime))
+                scene-bounds (or bounds [0 aspect 0 1])
+                previous-frame (atom nil)
                 capture-state (atom {:index 0 :captured-at 0})]
-            (ui/run #(app font-path aspect)
+            (swap! state assoc :aspect aspect :bounds scene-bounds
+                   :nrepl-port (:port run))
+            (ui/run #(app font-path aspect scene-bounds)
                     :title "Slipstream demoscene"
                     :width width
                     :height height
@@ -136,7 +142,7 @@
                                 (when @(:close-requested? run)
                                   (request-native-close!)))
                     :after-render #(do
-                                     (advance-from-native-input! previous-frame)
+                                     (advance-from-native-input! previous-frame scene-bounds)
                                      (maybe-capture! capture-dir capture-state))
                     :max-frames max-frames
                     :auto-quit-ms auto-quit-ms))

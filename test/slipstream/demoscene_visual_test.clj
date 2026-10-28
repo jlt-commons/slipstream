@@ -20,22 +20,25 @@
 (def ^:private capture-directory (System/getenv "SLIPSTREAM_DEMO_CAPTURE_DIR"))
 
 (def ^:private golden-hashes
-  {:waves 763709567
-   :voronoi -1010006093
-   :midpoint 583103409
-   :mouse-warp -1837935436
-   :vectors-early -1575908726
-   :vectors-late 952409621})
+  {:waves -485840326
+   :voronoi 1243398668
+   :midpoint 843891352
+   :mouse-warp -1703998915
+   :vectors-early -1430381162
+   :vectors-late 540888545})
 
 (defn- base-state []
   (assoc visuals/initial-state
          :time 0.75
          :transition 0.0
          :transition-target 0.0
-         :mouse [0.5 0.5]
+         :mouse [0.8 0.5]
+         :attraction [0.8 0.5]
          :density 1.0
          :speed 1.0
          :aspect 1.6
+         :bounds bounds
+         :nrepl-port 45678
          :font test-font
          :vectors {}))
 
@@ -43,10 +46,10 @@
   {:waves (base-state)
    :voronoi (assoc (base-state) :transition 1.0 :transition-target 1.0)
    :midpoint (assoc (base-state) :transition 0.5 :transition-target 0.5)
-   :mouse-warp (assoc (base-state) :mouse [0.82 0.3])
+   :mouse-warp (assoc (base-state) :mouse [1.312 0.3] :attraction [1.312 0.3])
    :vectors-early (assoc (base-state) :time 0.0 :transition 0.2)
    :vectors-late (assoc (base-state) :time 4.0 :transition 0.8
-                         :mouse [0.68 0.62] :burst 0.7)})
+                         :mouse [1.088 0.62] :attraction [1.088 0.62] :burst 0.7)})
 
 (defn- frame-state [context]
   (ffi/with-layout [out f/gl-frame-state-layout]
@@ -136,29 +139,90 @@
       (is (= (count frames) (count (into #{} (map frame-digest) (vals frames))))
           "every stage and control state must be visually distinct"))))
 
-(deftest constellation-has-independent-rich-shapes-and-a-static-geneva-hud
-  (let [scene (visuals/scene-for-state (base-state))
-        shapes (atom [])
-        texts (atom [])]
+(deftest noncanonical-bounds-render-the-complete-scene
+  (let [context (renderer/create-context
+                  {:title "slipstream demoscene custom bounds" :width 160 :height 100
+                   :bounds [-2 4 3 7] :visible false})]
+    (try
+      (binding [sg/*context* context]
+        (let [state (assoc (base-state) :bounds [-2 4 3 7] :aspect 1.5
+                           :mouse [1.0 5.0] :attraction [1.0 5.0])
+              frame (capture-state! context state)]
+          (write-capture! :custom-bounds frame)
+          (is (= [320 200] [(:width frame) (:height frame)]))
+          (is (= 621095928 (frame-digest frame)) "custom-bounds golden mismatch")))
+      (finally
+        (renderer/destroy! context)))))
+
+(defn- scene-elements [scene]
+  (let [elements (atom {:shapes [] :texts []})]
     (letfn [(visit [node]
               (when (vector? node)
                 (let [[tag props] node]
-                  (when (= :shape tag) (swap! shapes conj props))
-                  (when (= :text tag) (swap! texts conj props))
+                  (when (= :shape tag) (swap! elements update :shapes conj props))
+                  (when (= :text tag) (swap! elements update :texts conj props))
                   (doseq [child (drop 2 node)] (visit child)))))]
       (visit scene))
-    (let [vectors (filter #(= "vector" (namespace (:id %))) @shapes)]
-      (is (= 12 (count vectors)))
-      (is (= 12 (count (into #{} (map :id) vectors))))
-      (is (some #(map? (:fill %)) vectors))
-      (is (some #(= :pattern (get-in % [:fill :type])) vectors))
-      (is (some #(:sdf %) vectors)))
-    (is (seq @texts))
-    (is (every? #(= test-font (:font %)) @texts))
-    (is (every? #(not (re-find #"\d" (:text %))) @texts)
-        "HUD copy stays static so numeric uniforms cannot churn glyph atlases")))
+    @elements))
 
-(deftest controls-are-deterministic-edge-triggered-and-clamped
+(defn- element-by-id [elements id]
+  (some #(when (= id (:id %)) %) (concat (:shapes elements) (:texts elements))))
+
+(deftest constellation-has-independent-rich-shapes-and-a-change-driven-geneva-hud
+  (let [{:keys [shapes texts] :as elements} (scene-elements
+                                              (visuals/scene-for-state (base-state)))
+        vectors (filter #(= "vector" (namespace (:id %))) shapes)
+        status (:text (element-by-id elements :hud-status))]
+    (is (= 12 (count vectors)))
+    (is (= 12 (count (into #{} (map :id) vectors))))
+    (is (some #(map? (:fill %)) vectors))
+    (is (some #(= :pattern (get-in % [:fill :type])) vectors))
+    (is (some #(:sdf %) vectors))
+    (is (= 3 (count texts)))
+    (is (every? #(= test-font (:font %)) texts))
+    (is (re-find #"MODE WAVES" status))
+    (is (re-find #"DENSITY 1.00" status))
+    (is (re-find #"SPEED 1.00" status))
+    (is (re-find #"NREPL 127.0.0.1:45678" status))
+    (is (= status
+           (:text (element-by-id
+                    (scene-elements (visuals/scene-for-state
+                                      (assoc (base-state) :time 99.0 :burst 0.8)))
+                    :hud-status)))
+        "animation-only changes must not rewrite HUD text")))
+
+(deftest right-button-and-space-toggle-on-press-but-not-while-held
+  (let [initial (base-state)
+        right-down (visuals/update-state initial 0.1 {:right true})
+        right-held (visuals/update-state right-down 0.1 {:right true})
+        right-up (visuals/update-state right-held 0.1 {})
+        right-again (visuals/update-state right-up 0.1 {:right true})
+        space-down (visuals/update-state right-up 0.1 {:space true})
+        space-held (visuals/update-state space-down 0.1 {:space true})
+        both-down (visuals/update-state initial 0.1 {:right true :space true})]
+    (is (= 1.0 (:transition-target right-down)))
+    (is (= 1.0 (:transition-target right-held)) "held right must not repeatedly toggle")
+    (is (= 1.0 (:transition-target right-up)))
+    (is (false? (:right right-up)))
+    (is (= 0.0 (:transition-target right-again)) "a second right press toggles back")
+    (is (= 0.0 (:transition-target space-down)))
+    (is (= 0.0 (:transition-target space-held)) "held Space must not repeatedly toggle")
+    (is (= 1.0 (:transition-target both-down)) "simultaneous inputs are one logical toggle")))
+
+(deftest left-button-boosts-through-press-hold-release-and-repeated-input
+  (let [initial (base-state)
+        pressed (visuals/update-state initial 0.25 {:left true})
+        held (visuals/update-state pressed 0.25 {:left true})
+        released (visuals/update-state held 0.25 {})
+        still-released (visuals/update-state released 0.25 {})
+        pressed-again (visuals/update-state still-released 0.25 {:left true})]
+    (is (= 1.0 (:burst pressed)))
+    (is (= 1.0 (:burst held)) "held left must sustain rather than decay energy")
+    (is (= 0.65 (:burst released)))
+    (is (< (Math/abs (- 0.3 (:burst still-released))) 0.000000000001))
+    (is (= 1.0 (:burst pressed-again)))))
+
+(deftest density-clamps-reset-and-time-remain-deterministic
   (let [initial (base-state)
         changed (visuals/update-state initial 0.25
                   {:mouse [0.8 0.25] :scroll-y 2.0 :left true :space true})]
@@ -167,20 +231,62 @@
     (is (= 1.2 (:density changed)))
     (is (= 1.0 (:transition-target changed)))
     (is (< 0.0 (:transition changed) 1.0))
-    (is (pos? (:burst changed)))
-    (is (= 1.0 (:transition-target
-                 (visuals/update-state changed 0.1 {:space true})))
-        "held space must not repeatedly toggle")
     (is (= 0.25 (:density (visuals/update-state initial 0.1 {:scroll-y -100.0}))))
     (is (= 4.0 (:density (visuals/update-state initial 0.1 {:scroll-y 100.0}))))
     (let [reset (visuals/update-state changed 0.1 {:r true})]
       (is (= (select-keys visuals/initial-state
-                          [:time :transition :transition-target :mouse
-                           :density :speed :burst :vectors])
-             (select-keys reset [:time :transition :transition-target :mouse
-                                 :density :speed :burst :vectors])))
-      (is (= (select-keys changed [:aspect :font])
-             (select-keys reset [:aspect :font]))))))
+                          [:time :transition :transition-target :mouse :attraction
+                           :density :speed :burst :geometry-stage :vectors])
+             (select-keys reset [:time :transition :transition-target :mouse :attraction
+                                 :density :speed :burst :geometry-stage :vectors])))
+      (is (= (select-keys changed [:aspect :bounds :nrepl-port :font])
+             (select-keys reset [:aspect :bounds :nrepl-port :font]))))))
+
+(deftest constellation-attraction-is-dt-based-and-frame-rate-independent
+  (let [initial (base-state)
+        input {:mouse [1.2 0.25]}
+        single (visuals/update-state initial 0.25 input)
+        half-1 (visuals/update-state initial 0.125 input)
+        half-2 (visuals/update-state half-1 0.125 input)]
+    (is (not= (:mouse single) (:attraction single)))
+    (doseq [axis (range 2)]
+      (is (< (Math/abs (- (nth (:attraction single) axis)
+                          (nth (:attraction half-2) axis)))
+             0.000000000001)))
+    (is (= (:mouse single) (:mouse half-2)))))
+
+(deftest automatic-geometry-stages-cross-explicit-time-thresholds
+  (let [initial (assoc (base-state) :time 0.0 :geometry-stage 0)
+        before (visuals/update-state initial 4.49 {})
+        first-stage (visuals/update-state initial 4.5 {})
+        second-stage (visuals/update-state initial 7.5 {})]
+    (is (= 0 (:geometry-stage before)))
+    (is (= 1 (:geometry-stage first-stage)))
+    (is (= 2 (:geometry-stage second-stage)))
+    (let [scene-elements #(scene-elements (visuals/scene-for-state %))
+          before-path (:path (element-by-id (scene-elements before) :vector/0))
+          first-path (:path (element-by-id (scene-elements first-stage) :vector/0))
+          second-path (:path (element-by-id (scene-elements second-stage) :vector/5))]
+      (is (not= before-path first-path))
+      (is (not= before-path second-path)))))
+
+(deftest complete-bounds-drive-background-placement-and-mouse-normalization
+  (let [custom-bounds [-2 4 3 7]
+        state (assoc (base-state) :bounds custom-bounds :aspect 1.5
+                     :mouse [1.0 5.0] :attraction [1.0 5.0])
+        {:keys [shapes] :as elements} (scene-elements (visuals/scene-for-state state))
+        background (element-by-id elements :hybrid-background)
+        title (element-by-id elements :hud-title)]
+    (is (= [[:rect 0.0 0.0 6 4]] (:path background)))
+    (is (= [-2 3 0.0] (:at background)))
+    (is (= [-2 4 3 7] (get-in background [:effect :uniforms :bounds :value])))
+    (is (= [0.5 0.5]
+           (get-in (visuals/shader-effect state) [:uniforms :mouse :value])))
+    (is (= [-1.84 6.76 0.0] (:at title)))
+    (is (= 0.112 (:size title)))
+    (is (every? (fn [{[x y _] :at}]
+                  (and (<= -2 x 4) (<= 3 y 7)))
+                (filter #(= "vector" (namespace (:id %))) shapes)))))
 
 (deftest orbit-color-and-uniform-updates-do-not-churn-native-resources
   (with-context [context]
@@ -191,8 +297,8 @@
         (capture-mounted! context scene)
         (let [before (frame-state context)
               widgets-before (widgets-by-id scene)]
-          (swap! scene-state assoc :time 2.5 :transition 0.65 :transition-target 1.0
-                 :mouse [0.77 0.21] :density 2.25 :speed 1.4 :burst 0.8)
+          (swap! scene-state assoc :time 2.5 :transition 0.65
+                 :mouse [1.232 0.21] :attraction [1.232 0.21] :burst 0.8)
           (capture-mounted! context scene)
           (is (= before (frame-state context)))
           (doseq [[id widget] (widgets-by-id scene)]
@@ -200,6 +306,34 @@
               (is (identical? old-widget widget) (str "widget replaced: " id))
               (is (identical? (:resource @old-widget) (:resource @widget))
                   (str "resource replaced: " id)))))
+        (finally
+          (unmount! mounted))))))
+
+(deftest automatic-staged-path-changes-render-and-rebuild-only-stage-members
+  (with-context [context]
+    (let [scene-state (r/atom (assoc (base-state) :time 4.0 :geometry-stage 0))
+          scene (b/create! :scene {})
+          mounted (mount! scene [ (fn [] (visuals/scene-for-state @scene-state)) ])]
+      (try
+        (let [before-frame (capture-mounted! context scene)
+              before (widgets-by-id scene)
+              resources-before (into {} (keep (fn [[id widget]]
+                                                (when (:resource @widget)
+                                                  [id (:resource @widget)])))
+                                        before)
+              staged (visuals/update-state @scene-state 0.5 {})]
+          (is (= 1 (:geometry-stage staged)))
+          (reset! scene-state staged)
+          (let [after-frame (capture-mounted! context scene)
+                after (widgets-by-id scene)
+                changed (into #{}
+                              (keep (fn [[id old-resource]]
+                                      (when-not (identical? old-resource
+                                                            (:resource @(get after id)))
+                                        id)))
+                              resources-before)]
+            (is (not= (frame-digest before-frame) (frame-digest after-frame)))
+            (is (= #{:vector/0 :vector/7} changed))))
         (finally
           (unmount! mounted))))))
 

@@ -64,11 +64,48 @@
                   (fn [port _middleware _opts]
                     (is (zero? port))
                     (fake-stop events 45678))
-                  ui/run (fn [& _] nil)]
+                  ui/run (fn [root-fn & _]
+                           (is (re-find #"NREPL 127.0.0.1:45678"
+                                        (pr-str (root-fn)))))]
       (let [output (with-out-str
                      (is (= {:port 45678}
                             (demo/start! {:font-path test-font :port 0}))))]
         (is (re-find #"45678" output))))
+    (is (= [:stop] @events))))
+
+(deftest first-frame-uses-zero-dt-and-complete-bounds-for-scene-and-cursor
+  (let [events (atom [])
+        updates (atom [])
+        custom-bounds [-2 4 3 7]]
+    (with-redefs [jolt-nrepl/start (fn [& _] (fake-stop events 45678))
+                  sg/current-context (constantly :native-context)
+                  renderer/input-snapshot (fn [_] {})
+                  renderer/cursor->bounds
+                  (fn [_ bounds]
+                    (is (= custom-bounds bounds))
+                    [2.5 6.0])
+                  visuals/update-state
+                  (fn [state dt input]
+                    (swap! updates conj {:dt dt :input input})
+                    state)
+                  ui/run
+                  (fn [root-fn & {:as opts}]
+                    (let [background (some (fn [node]
+                                             (when (and (vector? node)
+                                                        (= :shape (first node))
+                                                        (= :hybrid-background
+                                                           (get-in node [1 :id])))
+                                               (second node)))
+                                           (tree-seq vector? seq (root-fn)))]
+                      (is (= [[:rect 0.0 0.0 6 4]] (:path background)))
+                      (is (= [-2 3 0.0] (:at background)))
+                      (is (= custom-bounds
+                             (get-in background [:effect :uniforms :bounds :value]))))
+                    ((:after-render opts)))]
+      (demo/start! {:font-path test-font :port 0 :bounds custom-bounds}))
+    (is (= 1 (count @updates)))
+    (is (= 0.0 (:dt (first @updates))))
+    (is (= [2.5 6.0] (get-in @updates [0 :input :mouse])))
     (is (= [:stop] @events))))
 
 (deftest nrepl-startup-failure-prevents-ui-and-preserves-the-original-error
@@ -231,15 +268,16 @@
       (is (pos? @actual-port))
       (is (= 42 (:lifecycle-eval @demo/state))))))
 
-(defn- capture-live-frame [context]
+(defn- capture-live-frame []
   (let [pending (promise)]
     (ui/on-gui
       (fn []
         (deliver pending
                  (try
-                   {:context context
-                    :close-requested? (renderer/should-close? context)
-                    :frame (renderer/capture! context)}
+                   (let [context (sg/current-context)]
+                     {:context context
+                      :close-requested? (renderer/should-close? context)
+                      :frame (renderer/capture! context)})
                    (catch Throwable error
                      {:error error})))))
     (let [{:keys [error] :as result}
@@ -247,7 +285,7 @@
       (when error (throw error))
       result)))
 
-(defn- exercise-live-nrepl [port context]
+(defn- exercise-live-nrepl [port]
   (let [transport (nrepl/connect "127.0.0.1" port)]
     (try
       (let [session (nrepl/new-session transport)
@@ -288,8 +326,8 @@
                               ":density 2.5 :speed 0.0 :live-eval true) "
                               "(select-keys @slipstream.example.demoscene/state "
                               "[:density :speed :live-eval])"))))
-        (let [{before-context :context before-frame :frame} (capture-live-frame context)]
-          (is (false? (:close-requested? (capture-live-frame context))))
+        (let [{before-context :context before-frame :frame} (capture-live-frame)]
+          (is (false? (:close-requested? (capture-live-frame))))
           (evaluate (str "(def palette {:a [1.0 0.0 0.0] :b [0.0 1.0 0.0] "
                          ":c [0.0 0.0 1.0] :d [1.0 0.5 0.25]})")
                     "slipstream.example.demoscene-shader")
@@ -298,7 +336,7 @@
                                 "@slipstream.example.demoscene/state) "
                                 "[:uniforms :paletteA :value])"))))
           (evaluate "(swap! slipstream.example.demoscene/state update :density + 0.125)")
-          (let [{after-context :context after-frame :frame} (capture-live-frame context)]
+          (let [{after-context :context after-frame :frame} (capture-live-frame)]
             (is (identical? before-context after-context))
             (is (= [640 400] [(:width before-frame) (:height before-frame)]))
             (is (not= (hash (vec (:pixels before-frame)))
@@ -335,7 +373,7 @@
                                           (future
                                             (try
                                               (deliver client-result
-                                                       (exercise-live-nrepl @actual-port @context))
+                                                       (exercise-live-nrepl @actual-port))
                                               (catch Throwable error
                                                 (deliver client-result {:error error})
                                                 (demo/stop!))))))]
