@@ -9,6 +9,7 @@
             [slipstream.glimmer-resources-test]
             [slipstream.glimmer-renderer-test]
             [slipstream.glimmer-paint-test]
+            [slipstream.glimmer-compositor-test]
             [slipstream.parity-test]))
 
 (defn- exit [code]
@@ -20,5 +21,6 @@
                                           'slipstream.glfw-test 'slipstream.glimmer-test
                                           'slipstream.glimmer-resources-test
                                           'slipstream.glimmer-renderer-test
-                                          'slipstream.glimmer-paint-test 'slipstream.parity-test)]
+                                          'slipstream.glimmer-paint-test
+                                          'slipstream.glimmer-compositor-test 'slipstream.parity-test)]
     (exit (if (zero? (+ fail error)) 0 1))))

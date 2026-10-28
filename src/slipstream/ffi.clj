@@ -147,9 +147,12 @@
                         [:transform [:struct [[:x :float] [:y :float] [:z :float]]]]
                         [:color [:struct [[:r :float] [:g :float] [:b :float] [:a :float]]]]
                         [:scale :float] [:effect-id :uint32] [:effect-param :float]
-                        [:visible :uint8]]]))
+                        [:visible :uint8] [:kind :uint8] [:draw-mode :uint8]
+                        [:blend-mode :uint8] [:mask-type :uint8] [:mask-invert :uint8]
+                        [:reserved [:array :uint8 2]] [:mask-params [:array :float 6]]]]))
 (def gl-frame-state-layout
   (ffi/layout [:struct [[:viewport [:array :int32 4]]
+                        [:framebuffer-binding :int32]
                         [:framebuffer-size [:array :int32 2]]
                         [:window-size [:array :int32 2]]
                         [:projection [:array :float 16]]

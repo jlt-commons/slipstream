@@ -34,6 +34,8 @@
                                       "native/glfw_renderer.cpp"
                                       "native/advanced_shaders.cpp"
                                       "native/paint.cpp"
+                                      "native/compositor.cpp"
+                                      "native/compositor.hpp"
                                       "native/reactive_renderer.cpp"
                                       "native/reactive_renderer.hpp"
                                       "native/parity_oracle.cpp"

@@ -186,7 +186,8 @@ void main() {
     vec4 gradient = gradient_Color(v_emCoord);
     color = vec4(gradient.rgb, gradient.a * v_color.a);
   }
-  fragColor = vec4(color.rgb, fill * color.a);
+  float alpha = fill * color.a;
+  fragColor = vec4(color.rgb * alpha, alpha);
 }
 )";
 }

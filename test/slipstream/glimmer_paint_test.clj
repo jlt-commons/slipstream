@@ -79,12 +79,12 @@
       (try
         (is (zero? (:paint flat)))
         (check-pixel (capture context flat 1) [32 32] [255 0 0 255])
-        (check-pixel (capture context flat 0.5) [32 32] [147 19 19 191])
+        (check-pixel (capture context flat 0.5) [32 32] [147 19 19 255])
         (let [frame (capture context linear 1)]
           (check-pixel frame [8 32] [225 0 30 255])
           (check-pixel frame [32 32] [128 0 128 255])
           (check-pixel frame [56 32] [30 0 225 255]))
-        (check-pixel (capture context linear 0.5) [32 32] [83 19 83 191])
+        (check-pixel (capture context linear 0.5) [32 32] [83 19 83 255])
         (is (= 0.75 (:effect-param (frame-state context))))
         (finally
           (release-paint context flat)

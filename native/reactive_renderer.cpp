@@ -1,5 +1,6 @@
 #include "reactive_renderer.hpp"
 
+#include "compositor.hpp"
 #include "slipstream_internal.hpp"
 #include "slipstream_shim.h"
 
@@ -39,6 +40,10 @@ struct GLResource {
   GLuint ebo = 0;
   GLsizei index_count = 0;
   uint32_t texture_width = 0;
+  GLuint sdf = 0;
+  int sdf_type = 0;
+  std::array<float, 4> sdf_rect{};
+  std::array<float, 4> sdf_frame{};
 
   ~GLResource() {
     if(vao) glDeleteVertexArrays(1, &vao);
@@ -46,6 +51,7 @@ struct GLResource {
     if(ebo) glDeleteBuffers(1, &ebo);
     if(curve) glDeleteTextures(1, &curve);
     if(band) glDeleteTextures(1, &band);
+    if(sdf) glDeleteTextures(1, &sdf);
     delete paint;
   }
 };
@@ -59,6 +65,7 @@ struct GLProgram {
 struct GLContext {
   GLFWwindow* window = nullptr;
   GLProgram paint_program;
+  std::unique_ptr<slipstream::reactive::Compositor> compositor;
   GLuint dummy_gradient = 0;
   uint32_t shader_compilations = 0;
   uint32_t resource_uploads = 0;
@@ -71,6 +78,7 @@ struct GLContext {
   ~GLContext() {
     if(window) glfwMakeContextCurrent(window);
     for(auto* resource : resources) delete resource;
+    compositor.reset();
     if(paint_program.id) glDeleteProgram(paint_program.id);
     if(paint_program.vertex) glDeleteShader(paint_program.vertex);
     if(paint_program.fragment) glDeleteShader(paint_program.fragment);
@@ -156,24 +164,51 @@ void initialize_context(GLContext* context) {
   glUniform1i(glGetUniformLocation(context->paint_program.id, "u_curveTexture"), 0);
   glUniform1i(glGetUniformLocation(context->paint_program.id, "u_bandTexture"), 1);
   glUniform1i(glGetUniformLocation(context->paint_program.id, "u_gradientTexture"), 2);
-  glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  context->compositor = std::make_unique<slipstream::reactive::Compositor>();
+  context->shader_compilations += 4;
+  glDisable(GL_BLEND);
   glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
+}
+
+void validate_blend_mode(uint8_t mode) {
+  if((mode > 11 && mode < 20) || mode > 30)
+    throw std::invalid_argument("unknown blend mode " + std::to_string(mode));
 }
 
 void validate_commands(GLContext* context, const SSGLDrawCommand* commands, uint64_t count) {
   if(count > 0 && !commands) throw std::invalid_argument("GL draw commands are null");
+  uint64_t depth = 0;
   for(uint64_t i = 0; i < count; ++i) {
-    auto* resource = require_resource(context, commands[i].handle);
-    if(commands[i].effect_id != 0)
+    const auto& command = commands[i];
+    if(command.kind > 2) throw std::invalid_argument("unknown GL command kind");
+    validate_blend_mode(command.blend_mode);
+    if(command.kind == 2) {
+      if(depth == 0) throw std::invalid_argument("end-group has no matching begin-group");
+      --depth;
+      continue;
+    }
+    if(command.kind == 1) {
+      ++depth;
+      if(command.mask_type != 255 && command.mask_type > 8)
+        throw std::invalid_argument("unknown mask type");
+      if(command.mask_type == 0) {
+        auto* mask = require_resource(context, command.handle);
+        if(!mask->sdf) throw std::invalid_argument("SDF tile mask resource has no baked tile");
+      }
+      continue;
+    }
+    auto* resource = require_resource(context, command.handle);
+    if(command.draw_mode > 3) throw std::invalid_argument("unknown draw mode");
+    if(command.effect_id != 0)
       throw std::invalid_argument("custom effects require an effect program, not the paint program");
-    if(resource->paint && !commands[i].paint)
+    if(resource->paint && !command.paint)
       throw std::invalid_argument("draw command is missing its advanced paint reference");
-    if(!resource->paint && commands[i].paint)
+    if(!resource->paint && command.paint)
       throw std::invalid_argument("flat draw command has an unexpected paint reference");
-    if(resource->paint && require_paint(context, commands[i].paint) != resource->paint)
+    if(resource->paint && require_paint(context, command.paint) != resource->paint)
       throw std::invalid_argument("draw command paint reference belongs to another resource");
   }
+  if(depth != 0) throw std::invalid_argument("begin-group has no matching end-group");
 }
 
 }
@@ -235,6 +270,12 @@ GLuint upload_texture(const slughorn::Atlas::TextureData& texture) {
   } else if(texture.format == Format::RGBA8) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texture.width, texture.height, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, texture.bytes.data());
+  } else if(texture.format == Format::RGB32F) {
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, texture.width, texture.height, 0,
+                 GL_RGB, GL_FLOAT, texture.bytes.data());
+  } else if(texture.format == Format::R32F) {
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, texture.width, texture.height, 0,
+                 GL_RED, GL_FLOAT, texture.bytes.data());
   } else {
     glDeleteTextures(1, &result);
     throw std::invalid_argument("unsupported Slug texture format");
@@ -363,6 +404,24 @@ void* ss_gl_upload(void* handle, void* atlasHandle, const SSLayer* root) noexcep
         throw std::runtime_error(slipstream::last_error);
       resource->curve = slipstream::reactive::upload_texture(atlas->getCurveTextureData());
       resource->band = slipstream::reactive::upload_texture(atlas->getBandTextureData());
+      if(!atlas->getSDF().texture.empty()) {
+        const slughorn::Key key = root->key.type == 0
+          ? slughorn::Key(root->key.codepoint)
+          : slughorn::Key(root->key.name ? root->key.name : "");
+        const auto shape = atlas->getShape(key);
+        if(shape && shape->sdf) {
+          const auto& tile = *shape->sdf;
+          resource->sdf = slipstream::reactive::upload_texture(atlas->getSDF().texture);
+          glBindTexture(GL_TEXTURE_2D, resource->sdf);
+          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+          glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+          glBindTexture(GL_TEXTURE_2D, 0);
+          resource->sdf_type = atlas->getSDF().config.type == slughorn::Atlas::SDF::Type::SDF ? 0 : 1;
+          resource->sdf_rect = {static_cast<float>(tile.x), static_cast<float>(tile.y),
+                                static_cast<float>(tile.w), static_cast<float>(tile.h)};
+          resource->sdf_frame = {tile.emOriginX, tile.emOriginY, tile.texelsPerEm, tile.range};
+        }
+      }
       if(paint && paint->data.kind == 1) {
         paint->texture = slipstream::reactive::upload_texture(atlas->getGradientTextureData());
         glBindTexture(GL_TEXTURE_2D, paint->texture);
@@ -444,8 +503,6 @@ int ss_gl_render(void* handle, const SSGLDrawCommand* commands, uint64_t count) 
     int width = 0;
     int height = 0;
     glfwGetFramebufferSize(context->window, &width, &height);
-    glViewport(0, 0, width, height);
-    glClear(GL_COLOR_BUFFER_BIT);
     float aspect = height > 0 ? static_cast<float>(width) / height : 1.0f;
     float bounds[4] = {0, aspect, 0, 1};
     if(context->has_bounds) std::copy(context->bounds, context->bounds + 4, bounds);
@@ -454,46 +511,76 @@ int ss_gl_render(void* handle, const SSGLDrawCommand* commands, uint64_t count) 
     float projection[16];
     slipstream::reactive::ortho_matrix(bounds[0], bounds[1], bounds[2], bounds[3],
                                        -100.0f, 100.0f, projection);
-    const GLuint program = context->paint_program.id;
-    glUseProgram(program);
-    glUniformMatrix4fv(glGetUniformLocation(program, "u_mvp"), 1, GL_FALSE, projection);
-    for(uint64_t i = 0; i < count; ++i) {
-      const auto& command = commands[i];
-      if(!command.visible) continue;
-      auto* resource = require_resource(context, command.handle);
-      const auto* paint = resource->paint;
-      context->effect_param = command.effect_param;
-      glUniform3f(glGetUniformLocation(program, "u_transform"),
-                  command.transform.x, command.transform.y, command.transform.z);
-      glUniform1f(glGetUniformLocation(program, "u_scale"), command.scale);
-      glUniform4f(glGetUniformLocation(program, "u_color"),
-                  command.color.r, command.color.g, command.color.b, command.color.a);
-      glUniform1i(glGetUniformLocation(program, "u_textureWidth"), resource->texture_width);
-      glUniform1i(glGetUniformLocation(program, "u_paintKind"), paint ? paint->data.kind : 0);
-      glUniform1i(glGetUniformLocation(program, "u_gradientCount"),
-                  paint ? paint->data.gradient_count : 0);
-      if(paint) {
-        glUniform4fv(glGetUniformLocation(program, "u_paintMeta"), 1, paint->data.meta.data());
-        glUniform4fv(glGetUniformLocation(program, "u_paintTransform"), 1,
-                     paint->data.transform.data());
-        glUniform4fv(glGetUniformLocation(program, "u_patternCell"), 1, paint->data.cell.data());
-        glUniform4fv(glGetUniformLocation(program, "u_patternBandTransform"), 1,
-                     paint->data.band_transform.data());
-        glUniform4fv(glGetUniformLocation(program, "u_patternShapeData"), 1,
-                     paint->data.shape_data.data());
+    context->compositor->begin_frame(width, height, bounds);
+    try {
+      for(uint64_t i = 0; i < count; ++i) {
+        const auto& command = commands[i];
+        if(command.kind == 2) {
+          context->compositor->end_group(command.blend_mode);
+          continue;
+        }
+        if(command.kind == 1) {
+          slipstream::reactive::CompositeMask mask;
+          mask.type = command.mask_type == 255 ? -1 : command.mask_type;
+          mask.invert = command.mask_invert != 0;
+          std::copy(command.mask_params, command.mask_params + 6, mask.params.begin());
+          mask.transform = {command.transform.x, command.transform.y, command.transform.z};
+          mask.scale = command.scale;
+          mask.opacity = command.color.a;
+          if(mask.type == 0) {
+            const auto* resource = require_resource(context, command.handle);
+            mask.texture = resource->sdf;
+            mask.sdf_type = resource->sdf_type;
+            mask.sdf_rect = resource->sdf_rect;
+            mask.sdf_frame = resource->sdf_frame;
+          }
+          context->compositor->begin_group(mask);
+          continue;
+        }
+        if(!command.visible) continue;
+        auto* resource = require_resource(context, command.handle);
+        context->effect_param = command.effect_param;
+        context->compositor->draw([context, resource, &command, projection]() {
+          const auto* paint = resource->paint;
+          const GLuint program = context->paint_program.id;
+          glDisable(GL_BLEND);
+          glUseProgram(program);
+          glUniformMatrix4fv(glGetUniformLocation(program, "u_mvp"), 1, GL_FALSE, projection);
+          glUniform3f(glGetUniformLocation(program, "u_transform"),
+                      command.transform.x, command.transform.y, command.transform.z);
+          glUniform1f(glGetUniformLocation(program, "u_scale"), command.scale);
+          glUniform4f(glGetUniformLocation(program, "u_color"),
+                      command.color.r, command.color.g, command.color.b, command.color.a);
+          glUniform1i(glGetUniformLocation(program, "u_textureWidth"), resource->texture_width);
+          glUniform1i(glGetUniformLocation(program, "u_paintKind"), paint ? paint->data.kind : 0);
+          glUniform1i(glGetUniformLocation(program, "u_gradientCount"),
+                      paint ? paint->data.gradient_count : 0);
+          if(paint) {
+            glUniform4fv(glGetUniformLocation(program, "u_paintMeta"), 1, paint->data.meta.data());
+            glUniform4fv(glGetUniformLocation(program, "u_paintTransform"), 1,
+                         paint->data.transform.data());
+            glUniform4fv(glGetUniformLocation(program, "u_patternCell"), 1, paint->data.cell.data());
+            glUniform4fv(glGetUniformLocation(program, "u_patternBandTransform"), 1,
+                         paint->data.band_transform.data());
+            glUniform4fv(glGetUniformLocation(program, "u_patternShapeData"), 1,
+                         paint->data.shape_data.data());
+          }
+          glActiveTexture(GL_TEXTURE0);
+          glBindTexture(GL_TEXTURE_2D, resource->curve);
+          glActiveTexture(GL_TEXTURE1);
+          glBindTexture(GL_TEXTURE_2D, resource->band);
+          glActiveTexture(GL_TEXTURE2);
+          glBindTexture(GL_TEXTURE_2D,
+                        paint && paint->texture ? paint->texture : context->dummy_gradient);
+          glBindVertexArray(resource->vao);
+          glDrawElements(GL_TRIANGLES, resource->index_count, GL_UNSIGNED_SHORT, nullptr);
+        }, command.draw_mode, command.blend_mode);
       }
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, resource->curve);
-      glActiveTexture(GL_TEXTURE1);
-      glBindTexture(GL_TEXTURE_2D, resource->band);
-      glActiveTexture(GL_TEXTURE2);
-      glBindTexture(GL_TEXTURE_2D,
-                    paint && paint->texture ? paint->texture : context->dummy_gradient);
-      glBindVertexArray(resource->vao);
-      glDrawElements(GL_TRIANGLES, resource->index_count, GL_UNSIGNED_SHORT, nullptr);
+      context->compositor->end_frame();
+    } catch(...) {
+      context->compositor->restore();
+      throw;
     }
-    glBindVertexArray(0);
-    glUseProgram(0);
     return 0;
   );
 }
@@ -523,6 +610,7 @@ int ss_gl_test_frame_state(void* handle, SSGLFrameState* out) noexcept {
     glfwMakeContextCurrent(context->window);
     std::memset(out, 0, sizeof(*out));
     glGetIntegerv(GL_VIEWPORT, out->viewport);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &out->framebuffer_binding);
     glfwGetFramebufferSize(context->window, &out->framebuffer_size[0], &out->framebuffer_size[1]);
     glfwGetWindowSize(context->window, &out->window_size[0], &out->window_size[1]);
     glGetUniformfv(context->paint_program.id,

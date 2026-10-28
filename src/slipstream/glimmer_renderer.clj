@@ -101,34 +101,72 @@
       (native-failure :release!)))
   nil)
 
+(def ^:private draw-modes
+  {:visible 0 :hidden 1 :geometry 2 :mask 3})
+(def ^:private blend-modes
+  {:src-over 0 :src 1 :dst 2 :src-in 3 :dst-in 4 :src-out 5 :dst-out 6
+   :src-atop 7 :dst-atop 8 :xor 9 :clear 10 :dst-over 11
+   :multiply 20 :screen 21 :overlay 22 :darken 23 :lighten 24
+   :color-dodge 25 :color-burn 26 :hard-light 27 :soft-light 28
+   :difference 29 :exclusion 30})
+(def ^:private mask-types
+  {:sdf-tile 0 :circle 1 :rect 2 :capsule 3 :arc 4 :arc-band 5
+   :hexagon 6 :octagon 7 :star 8})
+
+(defn- enum-value [value values label]
+  (if (integer? value)
+    value
+    (or (get values value)
+        (throw (ex-info (str "unknown " label) {label value})))))
+
+(defn- mask-parameters [mask]
+  (get mask :params (if (= :sdf-tile (:type mask)) [0 0 1] [])))
+
 (defn- command-data [command]
-  (let [transform (get command :transform [0 0 0])
-        color (get command :color [1 1 1 1])]
+  (let [begin? (contains? command :begin-group)
+        end? (contains? command :end-group)
+        transform (get command :transform [0 0 0])
+        color (get command :color [1 1 1 1])
+        mask (when begin? (:begin-group command))]
+    (when (and begin? end?)
+      (throw (ex-info "command cannot both begin and end a group" {:command command})))
     (when-not (<= 2 (count transform) 3)
       (throw (ex-info "draw transform must have two or three components" {:command command})))
     (when-not (= 4 (count color))
       (throw (ex-info "draw color must have four components" {:command command})))
-    {:handle (:handle command)
-     :paint (get command :paint 0)
+    (when (and mask (not (map? mask)))
+      (throw (ex-info "group mask must be a map or nil" {:command command})))
+    {:handle (if begin? (get command :mask-handle 0) (get command :handle 0))
+     :paint (if (or begin? end?) 0 (get command :paint 0))
      :transform (mapv double (into (vec transform) (repeat (- 3 (count transform)) 0)))
      :color (mapv double color)
      :scale (double (get command :scale 1))
      :effect-id (get command :effect-id 0)
      :effect-param (double (get command :effect-param 0))
-     :visible (if (false? (:visible command)) 0 1)}))
+     :visible (if (false? (:visible command)) 0 1)
+     :kind (cond begin? 1 end? 2 :else 0)
+     :draw-mode (enum-value (get command :draw-mode :visible) draw-modes :draw-mode)
+     :blend-mode (enum-value (if end? (:end-group command)
+                                 (get command :blend-mode :src-over))
+                             blend-modes :blend-mode)
+     :mask-type (if mask (enum-value (:type mask) mask-types :mask-type) 255)
+     :mask-invert (if (and mask (:invert mask)) 1 0)
+     :mask-params (mapv double (into (vec (mask-parameters mask))
+                                     (repeat (- 6 (count (mask-parameters mask))) 0)))}))
 
 (defn- validate-paint! [context index command]
-  (when-not (zero? (:effect-id command))
-    (throw (ex-info "effect ID requires a custom effect program"
-                    {:op :render! :scene-path [index :effect-id]
-                     :effect-id (:effect-id command)})))
-  (let [expected (paint-texture! context (:handle command))
-        actual (:paint command)]
-    (when-not (= expected actual)
-      (throw (ex-info "draw command paint reference does not match its resource"
-                      {:op :render! :scene-path [index :paint]
-                       :expected-paint expected :actual-paint actual
-                       :native-error "advanced paint reference is missing or invalid"})))))
+  (when (zero? (:kind command))
+    (when-not (zero? (:effect-id command))
+      (throw (ex-info "effect ID requires a custom effect program"
+                      {:op :render! :scene-path [index :effect-id]
+                       :effect-id (:effect-id command)})))
+    (let [expected (paint-texture! context (:handle command))
+          actual (:paint command)]
+      (when-not (= expected actual)
+        (throw (ex-info "draw command paint reference does not match its resource"
+                        {:op :render! :scene-path [index :paint]
+                         :expected-paint expected :actual-paint actual
+                         :native-error "advanced paint reference is missing or invalid"}))))))
 
 (defn render! [context draw-tree]
   (let [handle (context-handle context :render!)
@@ -148,7 +186,15 @@
           (ffi/write-field p f/gl-draw-command-layout :scale (:scale command))
           (ffi/write-field p f/gl-draw-command-layout :effect-id (:effect-id command))
           (ffi/write-field p f/gl-draw-command-layout :effect-param (:effect-param command))
-          (ffi/write-field p f/gl-draw-command-layout :visible (:visible command))))
+          (ffi/write-field p f/gl-draw-command-layout :visible (:visible command))
+          (ffi/write-field p f/gl-draw-command-layout :kind (:kind command))
+          (ffi/write-field p f/gl-draw-command-layout :draw-mode (:draw-mode command))
+          (ffi/write-field p f/gl-draw-command-layout :blend-mode (:blend-mode command))
+          (ffi/write-field p f/gl-draw-command-layout :mask-type (:mask-type command))
+          (ffi/write-field p f/gl-draw-command-layout :mask-invert (:mask-invert command))
+          (doseq [i (range 6)]
+            (ffi/write-field p f/gl-draw-command-layout [:mask-params i]
+                             (nth (:mask-params command) i)))))
       (when-not (zero? (f/gl-render handle command-p (count commands)))
         (native-failure :render!))))
   nil)

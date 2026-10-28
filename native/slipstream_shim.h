@@ -252,10 +252,18 @@ typedef struct SSGLDrawCommand {
   uint32_t effect_id;
   float effect_param;
   uint8_t visible;
+  uint8_t kind; /* 0 = draw, 1 = begin-group, 2 = end-group */
+  uint8_t draw_mode;
+  uint8_t blend_mode;
+  uint8_t mask_type; /* 255 = no mask */
+  uint8_t mask_invert;
+  uint8_t reserved[2];
+  float mask_params[6];
 } SSGLDrawCommand;
 
 typedef struct SSGLFrameState {
   int32_t viewport[4];
+  int32_t framebuffer_binding;
   int32_t framebuffer_size[2];
   int32_t window_size[2];
   float projection[16];

@@ -50,6 +50,16 @@ if(NOT NLOHMANN_JSON_INCLUDE_DIR)
   message(FATAL_ERROR "nlohmann/json.hpp not found; initialize Slughorn's ext/json submodule or install nlohmann-json")
 endif()
 
+FetchContent_Declare(
+  msdfgen
+  GIT_REPOSITORY https://github.com/Chlumsky/msdfgen.git
+  GIT_TAG e06c7eaaaa071445ec77a1d73f942889f796b70b)
+set(MSDFGEN_CORE_ONLY ON CACHE BOOL "" FORCE)
+set(MSDFGEN_USE_SKIA OFF CACHE BOOL "" FORCE)
+set(MSDFGEN_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(msdfgen)
+set_target_properties(msdfgen-core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(slipstream SHARED
   atlas.cpp
   shapes.cpp
@@ -60,14 +70,16 @@ add_library(slipstream SHARED
   glfw_renderer.cpp
   advanced_shaders.cpp
   paint.cpp
+  compositor.cpp
   reactive_renderer.cpp
   "${SLUGHORN_HOME}/slughorn/slughorn.cpp")
 target_include_directories(slipstream PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${SLUGHORN_HOME}"
+  "${msdfgen_SOURCE_DIR}"
   "${NLOHMANN_JSON_INCLUDE_DIR}")
-target_link_libraries(slipstream PRIVATE PkgConfig::FREETYPE glad glfw)
-target_compile_definitions(slipstream PRIVATE GLAD_GLAPI_EXPORT)
+target_link_libraries(slipstream PRIVATE PkgConfig::FREETYPE glad glfw msdfgen-core)
+target_compile_definitions(slipstream PRIVATE GLAD_GLAPI_EXPORT SLUGHORN_HAS_SDF)
 
 set_target_properties(slipstream PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
