@@ -46,6 +46,22 @@
             (native-failure :capture!))
           {:width width :height height :pixels (ffi/read-array pixels byte-count)})))))
 
+(defn frame-state [context]
+  (let [handle (context-handle context :frame-state)]
+    (ffi/with-layout [state f/gl-frame-state-layout]
+      (when-not (zero? (f/gl-test-frame-state handle state))
+        (native-failure :frame-state))
+      {:viewport (mapv #(ffi/read-field state f/gl-frame-state-layout [:viewport %]) (range 4))
+       :framebuffer-size (mapv #(ffi/read-field state f/gl-frame-state-layout [:framebuffer-size %])
+                              (range 2))
+       :window-size (mapv #(ffi/read-field state f/gl-frame-state-layout [:window-size %]) (range 2))
+       :projection (mapv #(ffi/read-field state f/gl-frame-state-layout [:projection %]) (range 16))
+       :shader-compilations (ffi/read-field state f/gl-frame-state-layout :shader-compilations)
+       :resource-uploads (ffi/read-field state f/gl-frame-state-layout :resource-uploads)
+       :paint-texture-uploads (ffi/read-field state f/gl-frame-state-layout :paint-texture-uploads)
+       :live-resources (ffi/read-field state f/gl-frame-state-layout :live-resources)
+       :live-effects (ffi/read-field state f/gl-frame-state-layout :live-effects)})))
+
 (defn create-context
   [& [{:keys [title width height bounds visible]
        :or {title "glimmer" width 400 height 300 visible true}

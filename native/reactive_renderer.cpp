@@ -934,6 +934,8 @@ int ss_gl_test_frame_state(void* handle, SSGLFrameState* out) noexcept {
     out->resource_uploads = context->resource_uploads;
     out->paint_texture_uploads = context->paint_texture_uploads;
     out->effect_param = context->effect_param;
+    out->live_resources = static_cast<uint32_t>(context->resources.size());
+    out->live_effects = static_cast<uint32_t>(context->effects.size());
     return 0;
   );
 }

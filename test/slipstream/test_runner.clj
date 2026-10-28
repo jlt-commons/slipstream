@@ -10,6 +10,7 @@
             [slipstream.glimmer-renderer-test]
             [slipstream.glimmer-input-test]
             [slipstream.demoscene-lifecycle-test]
+            [slipstream.demoscene-metrics-test]
             [slipstream.demoscene-visual-test]
             [slipstream.glimmer-paint-test]
             [slipstream.glimmer-compositor-test]
@@ -27,6 +28,7 @@
                                           'slipstream.glimmer-renderer-test
                                           'slipstream.glimmer-input-test
                                           'slipstream.demoscene-lifecycle-test
+                                          'slipstream.demoscene-metrics-test
                                           'slipstream.demoscene-visual-test
                                           'slipstream.glimmer-paint-test
                                           'slipstream.glimmer-compositor-test
