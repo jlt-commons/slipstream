@@ -9,6 +9,38 @@ Namespace: `slipstream.ffi`. This is the untyped-by-convenience boundary for int
 
 `last-error` returns the current thread's native error string. Every failing raw call must be checked immediately. Native entry points prevent C++ exceptions from crossing the ABI.
 
+## Calling and return conventions
+
+The tables below show Jolt argument types and native return types. Unless noted otherwise:
+
+- `:int32` operations return `0` for success and nonzero for failure. Queries documented as found/status operations return `1` for found/success, `0` for absent, and negative for failure.
+- Pointer-returning constructors return a nonzero owned handle or `0`/nil for failure. Owned atlas/path/canvas/mesh/context/resource handles must be released with their matching destroy/release call.
+- `atlas-built?` and `gl-should-close` return booleans; `false` is a legitimate answer, so inspect `last-error` when in doubt.
+- Gradient/pattern creation returns a positive one-based ID or negative for failure.
+- Strings returned as pointers have operation-specific borrowed or owned lifetimes. Copy borrowed strings before the next native call; call the documented free function for owned strings.
+
+Count/capacity protocols:
+
+- `atlas-composite-layers` first accepts `nil`/zero buffer and capacity to write the required count, then a buffer of at least that many `layer-layout` records and the capacity. It returns `1` for success, `0` for absent, and negative for failure.
+- `text-layout` similarly performs a count query followed by a layer-buffer write; it returns `0` for success and nonzero for failure.
+- Canvas fill/stroke writes a layer on success. A returned named-key string is valid until the next fill/stroke commit or canvas destruction.
+- `gl-paint-texture` returns zero when a resource has no advanced paint; this is not itself an error, so check `last-error` to distinguish failure.
+- `gl-error-command` returns the failing zero-based command index or a negative value when no command was reached.
+
+A checked raw lifecycle call looks like:
+
+```clojure
+(let [atlas (f/atlas-new 512 32)]
+  (when (or (nil? atlas) (zero? atlas))
+    (throw (ex-info "atlas-new failed" {:error (f/last-error)})))
+  (try
+    (when-not (zero? (f/atlas-build atlas))
+      (throw (ex-info "atlas-build failed" {:error (f/last-error)})))
+    (finally
+      (when-not (zero? (f/atlas-destroy atlas))
+        (throw (ex-info "atlas-destroy failed" {:error (f/last-error)}))))))
+```
+
 ## ABI layouts
 
 Public layout vars:
@@ -36,61 +68,88 @@ Use `ffi/layout-size`, `ffi/read-field`, and `ffi/write-field` with these descri
 
 ## Atlas and serialization bindings
 
-| Binding | C symbol | Purpose |
+| Binding and argument types | Return | C symbol / contract |
 |---|---|---|
-| `atlas-new` | `ss_atlas_new` | Construct atlas with width/curve precision. |
-| `atlas-set-sdf` | `ss_atlas_set_sdf` | Configure SDF type. |
-| `atlas-destroy` | `ss_atlas_destroy` | Destroy owned atlas. |
-| `atlas-build` | `ss_atlas_build` | Pack atlas. |
-| `atlas-built?` | `ss_atlas_is_built` | Query built state. |
-| `atlas-add-shape` | `ss_atlas_add_shape` | Add quadratic shape/metrics/splits/origin. |
-| `atlas-shape` | `ss_atlas_get_shape` | Read shape into output layout. |
-| `atlas-add-composite` | `ss_atlas_add_composite` | Add ordered composite/mask. |
-| `atlas-composite` | `ss_atlas_get_composite` | Query composite/advance. |
-| `atlas-composite-layers` | `ss_atlas_get_composite_layers` | Count/capacity layer read. |
-| `atlas-composite-mask` | `ss_atlas_get_composite_mask` | Read mask. |
-| `atlas-texture` | `ss_atlas_texture` | Read curve/band/SDF descriptor. |
-| `shape-quad` | `ss_shape_quad` | Compute scaled quad. |
-| `mesh-new` | `ss_mesh_new` | Build owned reference mesh. |
-| `mesh-descriptor` | `ss_mesh_descriptor` | Read mesh descriptor. |
-| `mesh-destroy` | `ss_mesh_destroy` | Destroy owned mesh. |
-| `atlas-write` | `ss_atlas_write` | Write `.slug`/`.slugb`. |
-| `atlas-read` | `ss_atlas_read` | Read owned built atlas. |
+| `(atlas-new width precision)` — `:uint32 :int32` | `:pointer` | `ss_atlas_new`; owned atlas. |
+| `(atlas-set-sdf atlas type)` — `:pointer :uint32` | `:int32` | `ss_atlas_set_sdf`. |
+| `(atlas-destroy atlas)` — `:pointer` | `:int32` | `ss_atlas_destroy`. |
+| `(atlas-build atlas)` — `:pointer` | `:int32` | `ss_atlas_build`. |
+| `(atlas-built? atlas)` — `:pointer` | `:bool` | `ss_atlas_is_built`. |
+| `(atlas-add-shape atlas key curves count auto-metrics bx by width height advance bands-x bands-y splits-x nx splits-y ny origin-type ox oy)` — pointer, pointer, pointer, `:uint64 :bool`, five `:float`, two `:int32`, pointer `:uint64`, pointer `:uint64`, `:uint32`, two `:float` | `:int32` | `ss_atlas_add_shape`. |
+| `(atlas-shape atlas key out)` — three pointers | `:int32` | `ss_atlas_get_shape`; `1` found, `0` absent, negative error. |
+| `(atlas-add-composite atlas key layers count advance mask)` — three pointers, `:uint64 :float :pointer` | `:int32` | `ss_atlas_add_composite`. |
+| `(atlas-composite atlas key advance-out)` — three pointers | `:int32` | `ss_atlas_get_composite`; found/absent/error status. |
+| `(atlas-composite-layers atlas key buffer capacity count-out)` — three pointers, `:uint64 :pointer` | `:int32` | `ss_atlas_get_composite_layers`; two-call count/capacity protocol. |
+| `(atlas-composite-mask atlas key out)` — three pointers | `:int32` | `ss_atlas_get_composite_mask`; `1` success. |
+| `(atlas-texture atlas kind out)` — two pointers, `:uint32` | `:int32` | `ss_atlas_texture`. |
+| `(shape-quad shape transform scale out)` — `:pointer :pointer :float :pointer` | `:int32` | `ss_shape_quad`. |
+| `(mesh-new atlas layers count)` — two pointers, `:uint64` | `:pointer` | `ss_mesh_new`; owned mesh. |
+| `(mesh-descriptor mesh out)` — two pointers | `:int32` | `ss_mesh_descriptor`. |
+| `(mesh-destroy mesh)` — `:pointer` | `:int32` | `ss_mesh_destroy`. |
+| `(atlas-write atlas path)` — `:pointer :string` | `:int32` | `ss_atlas_write`. |
+| `(atlas-read path)` — `:string` | `:pointer` | `ss_atlas_read`; owned built atlas. |
 
 ## Font, path, and Canvas bindings
 
-- `font-load` → `ss_font_load`: explicit/ASCII/all loading and result output.
-- `text-layout` → `ss_text_layout`: direct text layer buffer layout.
-- `path-new`/`path-destroy` → `ss_path_new`/`ss_path_destroy`.
-- `path-command` → `ss_path_command`; `path-add` → `ss_path_add`.
-- `path-sample` → `ss_path_sample`; `path-arc-length` → `ss_path_arc_length`.
-- `path-stroke` → `ss_path_stroke`.
-- `atlas-add-gradient` → `ss_atlas_add_gradient`; `atlas-add-pattern` → `ss_atlas_add_pattern`.
-- `canvas-new`/`canvas-destroy` → `ss_canvas_new`/`ss_canvas_destroy`.
-- `canvas-command` → `ss_canvas_command`; `canvas-add-path` → `ss_canvas_add_path`.
-- `canvas-set-splits` → `ss_canvas_set_splits`.
-- `canvas-fill`, `canvas-stroke`, `canvas-define-shape`, `canvas-text`, `canvas-finalize` → corresponding `ss_canvas_*` symbols.
-- `canvas-set-mask` and `canvas-mask-path` → `ss_canvas_set_mask`/`ss_canvas_mask_path`.
+| Binding and argument types | Return | C symbol / contract |
+|---|---|---|
+| `(font-load atlas path codepoints count mode uniform mask out)` — pointer, string, pointer, `:uint64 :uint32 :bool :uint8 :pointer` | `:int32` | `ss_font_load`; mode `0` explicit, `1` ASCII, `2` all. |
+| `(text-layout atlas codepoints count font-size x y color metrics anchor align mask layers capacity count-out)` — two pointers, `:uint64`, three `:float`, two pointers, two `:uint32 :uint8 :pointer :uint64 :pointer` | `:int32` | `ss_text_layout`; two-call count/capacity protocol. |
+| `(path-new)` | `:pointer` | `ss_path_new`; owned path. |
+| `(path-destroy path)` — `:pointer` | `:int32` | `ss_path_destroy`. |
+| `(path-command path id values count)` — two pointers, `:uint32 :pointer :uint64` | `:int32` | `ss_path_command`. |
+| `(path-add target source matrix)` — three pointers | `:int32` | `ss_path_add`; null matrix means identity. |
+| `(path-sample path t out)` — two pointers, `:float` | `:int32` | `ss_path_sample`. |
+| `(path-arc-length path out)` — two pointers | `:int32` | `ss_path_arc_length`. |
+| `(path-stroke path width clockwise join cap miter-limit)` — pointer, `:float :bool :uint32 :uint32 :float` | `:int32` | `ss_path_stroke`. |
+| `(atlas-add-gradient atlas type geometry geometry-count stops stop-count transform)` — pointer, `:uint32`, two pointers, two `:uint64`, pointer | `:int64` | `ss_atlas_add_gradient`; positive ID/negative error. |
+| `(atlas-add-pattern atlas tile cell transform repeat-x repeat-y)` — four pointers, two `:uint32` | `:int64` | `ss_atlas_add_pattern`; positive ID/negative error. |
+| `(canvas-new atlas key-start)` — pointer, `:uint32` | `:pointer` | `ss_canvas_new`; owned Canvas borrowing atlas. |
+| `(canvas-destroy canvas)` — `:pointer` | `:int32` | `ss_canvas_destroy`. |
+| `(canvas-command canvas id values count)` — two pointers, `:uint32 :pointer :uint64` | `:int32` | `ss_canvas_command`. |
+| `(canvas-add-path target source matrix)` — three pointers | `:int32` | `ss_canvas_add_path`. |
+| `(canvas-set-splits canvas xs nx ys ny)` — `:pointer :pointer :uint64 :pointer :uint64` | `:int32` | `ss_canvas_set_splits`. |
+| `(canvas-fill canvas path key color scale origin-type ox oy gradient-id pattern-id out)` — three pointers, by-value color, `:float :uint32`, two `:float`, two `:uint32`, pointer | `:int32` | `ss_canvas_fill`; writes layer. |
+| `(canvas-stroke canvas path key width color scale origin-type ox oy join cap miter-limit gradient-id pattern-id out)` — three pointers, `:float`, by-value color, `:float :uint32`, two `:float`, three `:uint32 :float`, two `:uint32`, pointer | `:int32` | `ss_canvas_stroke`; writes layer. |
+| `(canvas-define-shape canvas path key scale origin-type ox oy)` — three pointers, `:float :uint32`, two `:float` | `:int32` | `ss_canvas_define_shape`. |
+| `(canvas-text canvas text size x y color metrics anchor align mask)` — pointer, string, three `:float`, by-value color, pointer, two `:uint32 :uint8` | `:int32` | `ss_canvas_text`; upstream byte-wise text. |
+| `(canvas-finalize canvas key)` — two pointers | `:int32` | `ss_canvas_finalize`. |
+| `(canvas-set-mask canvas mask)` — two pointers | `:int32` | `ss_canvas_set_mask`; null clears mask. |
+| `(canvas-mask-path canvas range invert out)` — pointer, `:float :bool :pointer` | `:int32` | `ss_canvas_mask_path`; writes mask. |
 
 Canvas commit outputs may contain borrowed named-key storage. Copy data while it is valid; core wrappers already handle this.
 
 ## Reactive GL bindings
 
-- `gl-context-create`/`gl-context-destroy` → `ss_gl_context_create`/`ss_gl_context_destroy`.
-- `gl-poll`, `gl-should-close`, `gl-swap` → event/close/present operations.
-- `gl-program` → `ss_gl_program`; built-in `"paint"` program.
-- `gl-effect-program` → `ss_gl_effect_program`; compile/cache custom effect.
-- `gl-upload`, `gl-paint-texture`, `gl-release` → context-owned resource operations.
-- `gl-render` → `ss_gl_render`; `gl-error-command` → `ss_gl_error_command` for exact failing index.
-- `gl-test-resize`, `gl-test-bind-nondefault`, `gl-test-restore-default`, `gl-test-fail-next`, `gl-test-frame-state`, `gl-test-capture` → test-only native instrumentation.
+| Binding and argument types | Return | C symbol / contract |
+|---|---|---|
+| `(gl-context-create options)` — `:pointer` | `:pointer` | `ss_gl_context_create`; owned context. |
+| `(gl-context-destroy context)` — `:pointer` | `:int32` | `ss_gl_context_destroy`. |
+| `(gl-poll context)` / `(gl-swap context)` — `:pointer` | `:int32` | `ss_gl_poll` / `ss_gl_swap`. |
+| `(gl-should-close context)` — `:pointer` | `:bool` | `ss_gl_should_close`. |
+| `(gl-program context key)` — `:pointer :string` | `:pointer` | `ss_gl_program`; key `"paint"`. |
+| `(gl-effect-program context program-key effect-key declarations vertex-hook fragment-hook requires-sdf uniforms count)` — six pointers, `:uint8 :pointer :uint64` | `:pointer` | `ss_gl_effect_program`; context-owned effect instance. |
+| `(gl-upload context atlas root-layer)` — three pointers | `:pointer` | `ss_gl_upload`; context-owned resource. |
+| `(gl-paint-texture context resource)` — two pointers | `:pointer` | `ss_gl_paint_texture`; zero means no advanced paint. |
+| `(gl-release context resource)` — two pointers | `:int32` | `ss_gl_release`. |
+| `(gl-render context commands count)` — two pointers, `:uint64` | `:int32` | `ss_gl_render`. |
+| `(gl-error-command context)` — `:pointer` | `:int64` | `ss_gl_error_command`; failing index or negative. |
+| `(gl-test-resize context width height)` — pointer, two `:int32` | `:int32` | Test-only `ss_gl_test_resize`. |
+| `(gl-test-bind-nondefault context x y width height)` — pointer, four `:int32` | `:int32` | Test-only `ss_gl_test_bind_nondefault`. |
+| `(gl-test-restore-default context)` — `:pointer` | `:int32` | Test-only `ss_gl_test_restore_default`. |
+| `(gl-test-fail-next context point)` — `:pointer :uint32` | `:int32` | Test-only `ss_gl_test_fail_next`. |
+| `(gl-test-frame-state context out)` — two pointers | `:int32` | Test-only `ss_gl_test_frame_state`. |
+| `(gl-test-capture context pixels byte-count)` — two pointers, `:uint64` | `:int32` | Test-only `ss_gl_test_capture`. |
 
 All GL handles are context-owned. Passing a handle from another context is an error, not a share operation.
 
 ## Compatibility GLFW bindings
 
-- `glfw-run` → `ss_glfw_run`, marked `:blocking`; accepts atlas, layers view, title, curve precision, optional capture path, and max frames.
-- `read-stdin-text` → `ss_read_stdin_text`, marked `:blocking`; returns owned C string or nil for interactive stdin.
-- `free-stdin-text` → `ss_free_stdin_text`.
+| Binding and argument types | Return | C symbol / contract |
+|---|---|---|
+| `(glfw-run atlas layers-view title curve-precision capture-path max-frames)` — pointer, by-value layers view, pointer, `:int32 :pointer :int32` | `:int32` | `ss_glfw_run`, marked `:blocking`; zero success, nonzero failure. |
+| `(read-stdin-text)` | `:pointer` | `ss_read_stdin_text`, marked `:blocking`; owned C string or nil for interactive stdin. |
+| `(free-stdin-text pointer)` — `:pointer` | `:void` | `ss_free_stdin_text`; releases the owned string. |
 
 Use `slipstream.glfw/run!` and `read-stdin-text` to get automatic scene/native-buffer/string cleanup.
 
@@ -104,7 +163,7 @@ Compiles if necessary, scopes native scene/layer data, and runs the reference re
 - `:capture-path` — optional PPM output.
 - `:max-frames` — optional positive integer; nil runs interactively.
 
-It returns `nil` after clean exit and throws on native failure. The renderer supports standard fill only, actual atlas widths, and the upstream orbit/pan/zoom/projection/reset controls.
+It returns `nil` after clean exit and throws on native failure. **Ownership of the scene transfers to `run!`**: it is destroyed on every exit, so do not reuse a caller-supplied `Scene` afterward. The renderer supports standard fill only, actual atlas widths, and the upstream orbit/pan/zoom/projection/reset controls.
 
 ### `(read-stdin-text)`
 

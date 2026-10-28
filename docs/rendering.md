@@ -154,7 +154,7 @@ Creates a factory-backed resource wrapper. Factory supports `:create!`, `:releas
 
 ### `(release! resource)`
 
-Releases a CPU or factory/GPU wrapper exactly once; final CPU release destroys its atlas.
+Each call on a `CPUResource` releases one reference and must be balanced with an acquisition; the final release destroys its atlas. Factory/GPU wrapper release is idempotent and invokes the factory at most once.
 
 ### `(update-layers! resource props)`
 
@@ -189,10 +189,25 @@ Namespace: `slipstream.glimmer-effects`.
 
 ### Hook signatures
 
-Vertex:
+The vertex structure is:
+
+```glsl
+struct SlipstreamVertex {
+    vec3 position;
+    vec2 emCoord;
+};
+```
+
+Vertex hook:
 
 ```glsl
 SlipstreamVertex slipstream_vertex(SlipstreamVertex input, float effectParam);
+
+// Example: a small vertical displacement without changing atlas geometry.
+SlipstreamVertex slipstream_vertex(SlipstreamVertex input, float effectParam) {
+    input.position.y += effectParam;
+    return input;
+}
 ```
 
 Fragment:

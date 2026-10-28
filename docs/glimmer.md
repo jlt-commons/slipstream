@@ -122,18 +122,17 @@ Groups order children and can apply masks and offscreen blending:
 
 ## Common layer options
 
-Drawable/container props that do not normally rebuild geometry:
+Shapes, text, groups, and composites support these layer-oriented props without normally rebuilding geometry. The root `:scene` is configured through the `ui/run` options above rather than general layer placement/color/blend props:
 
 - `:at` / `:transform` — placement.
 - `:scale` — layer placement scale.
 - `:color` — straight RGBA.
 - `:visible` — `false` hides; `:visibility :hidden` also hides.
 - `:opacity` — multiplier, default `1`.
-- `:draw-mode` — `:visible`, `:hidden`, `:geometry`, or `:mask`.
-- `:blend-mode` — any supported Porter-Duff/Photoshop keyword.
-- `:effect`, `:effect-id`, `:effect-param` — custom effect program and scalar controls.
-- `:bleed` — content/effect margin.
+- `:blend-mode` — any supported Porter-Duff/Photoshop keyword; a non-default group blend triggers offscreen composition.
 - `:scene-path` — authored diagnostic path, retained in errors.
+
+Shape/text draw commands additionally support `:draw-mode` (`:visible`, `:hidden`, `:geometry`, or `:mask`), `:bleed`, and custom `:effect`, `:effect-id`, and `:effect-param`. Groups do not consume effect fields or non-visibility draw modes; put those props on the drawable child instead.
 
 Raw reactive `:gradient-id` and `:pattern-id` are rejected: atlas-local integers are not context-owned resource references. Use inline paint or `:paints` instead. A nonzero effect ID without a custom effect program is also an error.
 

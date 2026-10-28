@@ -15,7 +15,8 @@ The primary operations are `(normalize data)`, `(compile data)`, and `(with-scen
 (def data
   [:scene {:texture-width 512 :curve-precision 32}
    [:font {:id :body :path "/System/Library/Fonts/Geneva.ttf"}]
-   [:path {:id :tile} [:rect 0 0 0.2 0.2]]
+   [:path {:id :tile-path} [:rect 0 0 0.2 0.2]]
+   [:define-shape {:id :tile :path :tile-path}]
    [:path {:id :background}
     [:rect 0 0 1 1]]
    [:linear-gradient {:id :sky :from [0 0] :to [1 0]}
@@ -177,7 +178,7 @@ Shapes, groups, and explicit layers accept:
 
 - `:at` or `:transform` — `[x y]` or `[x y z]`; mutually exclusive.
 - `:scale` — placement scale, default `1`.
-- `:color` — straight RGBA, default `[0 0 0 1]` for shapes/layers.
+- `:color` — for groups and explicit layers, straight RGBA with default `[0 0 0 1]`. For shapes, use the shape-specific paint rules: filled shapes accept `:fill`, while stroked shapes accept `:color` or `:paint`; standalone `:color` is invalid on a filled shape.
 - `:effect-id` — unsigned 32-bit integer, default `0`.
 - `:effect-param` — number, default `0`.
 - `:gradient-id`, `:pattern-id` — unsigned integer native IDs, default `0`; normally use named paint references instead.
