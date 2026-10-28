@@ -146,7 +146,7 @@ Canvas commit outputs may contain borrowed named-key storage. Copy data while it
 | `(gl-test-frame-state context out)` — two pointers | `:int32` | `ss_gl_test_frame_state`; fills viewport/FBO sizes, projection, cumulative counters, and live counts. Used by the general `renderer/frame-state` API despite the historical symbol name. |
 | `(gl-test-capture context pixels byte-count)` — two pointers, `:uint64` | `:int32` | Test-only `ss_gl_test_capture`. |
 
-The `gl-frame-state-layout` instrumentation tail is `:shader-compilations`, `:resource-uploads`, and `:paint-texture-uploads` as unsigned 32-bit cumulative counters, `:effect-param` as a float diagnostic, then `:live-resources` and `:live-effects` as unsigned 32-bit current counts. Read the layout descriptors rather than duplicating offsets. Timing and percentile windows belong to callers such as the demoscene collector, not this raw query.
+The `gl-frame-state-layout` instrumentation tail is `:shader-compilations`, `:resource-uploads`, and `:paint-texture-uploads` as unsigned 32-bit cumulative counters, `:effect-param` as a float diagnostic, `:live-resources` and `:live-effects` as unsigned 32-bit current counts, then unsigned 32-bit per-render `:draw-commands`, `:geometry-commands`, and `:group-commands`. Draw counts total processed commands, geometry counts kind 0, and group counts begin/end markers; all three reset on every `ss_gl_render`, including empty and zero-size renders. Read the layout descriptors rather than duplicating offsets. Timing and percentile windows belong to callers such as the demoscene collector, not this raw query.
 
 All GL handles are context-owned. Passing a handle from another context is an error, not a share operation.
 

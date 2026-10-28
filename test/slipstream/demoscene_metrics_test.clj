@@ -1,6 +1,7 @@
 (ns slipstream.demoscene-metrics-test
   (:require [clojure.test :refer [deftest is]]
             [slipstream.example.demoscene-metrics :as metrics]
+            [slipstream.ffi :as f]
             [slipstream.glimmer-compiler :as compiler]
             [slipstream.glimmer-effects :as effects]
             [slipstream.glimmer-renderer :as renderer]
@@ -153,7 +154,8 @@
       (let [initial (renderer/frame-state context)]
         (is (= #{:viewport :framebuffer-size :window-size :projection
                  :shader-compilations :resource-uploads :paint-texture-uploads
-                 :live-resources :live-effects}
+                 :live-resources :live-effects
+                 :draw-commands :geometry-commands :group-commands}
                (set (keys initial))))
         (is (zero? (:live-resources initial)))
         (is (zero? (:live-effects initial)))
@@ -174,6 +176,42 @@
           (let [released (renderer/frame-state context)]
             (is (zero? (:live-resources released)))
             (is (= 1 (:live-effects released))))))
+      (finally
+        (renderer/destroy! context)
+        (resources/release! cpu)))))
+
+(deftest frame-state-counts-actual-commands-and-clears-no-op-frames
+  (let [context (renderer/create-context
+                  {:title "slipstream command counts" :width 64 :height 64 :visible false})
+        cpu (compiler/compile-shape
+              {:path [[:rect 0.1 0.1 0.8 0.8]]
+               :fill [1 0 0 1]
+               :texture-width 128})
+        counts #(select-keys % [:draw-commands :geometry-commands :group-commands])]
+    (try
+      (let [handle (renderer/upload! context cpu)]
+        (try
+          (let [draw {:handle handle}
+                commands [draw
+                          {:begin-group {:type :rect :params [0 0 1 1]}}
+                          draw
+                          {:begin-group nil}
+                          draw
+                          {:end-group :src-over}
+                          {:end-group :screen}]]
+            (renderer/render! context commands)
+            (is (= {:draw-commands 7 :geometry-commands 3 :group-commands 4}
+                   (counts (renderer/frame-state context))))
+            (renderer/render! context [])
+            (is (= {:draw-commands 0 :geometry-commands 0 :group-commands 0}
+                   (counts (renderer/frame-state context))))
+            (renderer/render! context commands)
+            (is (zero? (f/gl-test-resize (:handle context) 0 0)))
+            (renderer/render! context [draw])
+            (is (= {:draw-commands 0 :geometry-commands 0 :group-commands 0}
+                   (counts (renderer/frame-state context)))))
+          (finally
+            (renderer/release! context handle))))
       (finally
         (renderer/destroy! context)
         (resources/release! cpu)))))

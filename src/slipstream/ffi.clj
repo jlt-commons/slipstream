@@ -168,7 +168,10 @@
                         [:paint-texture-uploads :uint32]
                         [:effect-param :float]
                         [:live-resources :uint32]
-                        [:live-effects :uint32]]]))
+                        [:live-effects :uint32]
+                        [:draw-commands :uint32]
+                        [:geometry-commands :uint32]
+                        [:group-commands :uint32]]]))
 (def gl-input-layout
   (ffi/layout [:struct [[:x :double] [:y :double]
                         [:scroll-x :double] [:scroll-y :double]

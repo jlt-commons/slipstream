@@ -86,7 +86,7 @@ The last 600 measured durations form a bounded window. The HUD updates at most f
 - `:profile`, `:intensity`, and effective `:options`, including SDF, warm-up, metrics, and summary settings;
 - `:initialization-ms`, configured `:warmup-ms`, measured `:elapsed-ms`, and `:warming-up?`;
 - `:sample-count`, `:last-frame-ms`, `:mean-frame-ms`, derived `:fps`, and `:frame-percentiles-ms` with `:p50`, `:p95`, and `:p99` in milliseconds;
-- current `:framebuffer-size`, `:live-resources`, `:live-effects`, `:draw-commands`, `:geometry-commands`, and `:group-commands` (command counts are zero when the active backend does not supply them);
+- current `:framebuffer-size`, `:live-resources`, `:live-effects`, and per-render command counts: `:draw-commands` totals all processed commands, `:geometry-commands` counts kind-0 geometry, and `:group-commands` counts begin/end groups. Empty and zero-size renders reset all three to zero;
 - native cumulative `:shader-compilations`, `:resource-uploads`, and `:paint-texture-uploads` under `:cumulative-counters`, plus post-warm-up/reset `:counter-deltas`.
 
 Cumulative counters describe the native context's lifetime; deltas describe the current measurement interval. Live counts are instantaneous, not totals. A reset clears durations, the counter baseline, current counts, and HUD text while retaining the last native cumulative values.

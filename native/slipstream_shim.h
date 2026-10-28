@@ -283,6 +283,7 @@ typedef struct SSGLFrameState {
   uint32_t shader_compilations, resource_uploads, paint_texture_uploads;
   float effect_param;
   uint32_t live_resources, live_effects;
+  uint32_t draw_commands, geometry_commands, group_commands;
 } SSGLFrameState;
 
 typedef struct SSGLInput {

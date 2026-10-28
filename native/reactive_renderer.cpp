@@ -98,6 +98,9 @@ struct GLContext {
   uint32_t shader_compilations = 0;
   uint32_t resource_uploads = 0;
   uint32_t paint_texture_uploads = 0;
+  uint32_t draw_commands = 0;
+  uint32_t geometry_commands = 0;
+  uint32_t group_commands = 0;
   float effect_param = 0;
   bool has_bounds = false;
   float bounds[4] = {0, 1, 0, 1};
@@ -740,6 +743,9 @@ int ss_gl_release(void* handle, void* resourceHandle) noexcept {
 int ss_gl_render(void* handle, const SSGLDrawCommand* commands, uint64_t count) noexcept {
   ss_try(1,
     auto* context = require_context(handle);
+    context->draw_commands = 0;
+    context->geometry_commands = 0;
+    context->group_commands = 0;
     gl_error_command = -1;
     validate_commands(context, commands, count);
     glfwMakeContextCurrent(context->window);
@@ -760,6 +766,9 @@ int ss_gl_render(void* handle, const SSGLDrawCommand* commands, uint64_t count) 
       for(uint64_t i = 0; i < count; ++i) {
         gl_error_command = static_cast<int64_t>(i);
         const auto& command = commands[i];
+        ++context->draw_commands;
+        if(command.kind == 0) ++context->geometry_commands;
+        else ++context->group_commands;
         if(command.kind == 2) {
           context->compositor->end_group(command.blend_mode);
           continue;
@@ -936,6 +945,9 @@ int ss_gl_test_frame_state(void* handle, SSGLFrameState* out) noexcept {
     out->effect_param = context->effect_param;
     out->live_resources = static_cast<uint32_t>(context->resources.size());
     out->live_effects = static_cast<uint32_t>(context->effects.size());
+    out->draw_commands = context->draw_commands;
+    out->geometry_commands = context->geometry_commands;
+    out->group_commands = context->group_commands;
     return 0;
   );
 }

@@ -60,7 +60,10 @@
        :resource-uploads (ffi/read-field state f/gl-frame-state-layout :resource-uploads)
        :paint-texture-uploads (ffi/read-field state f/gl-frame-state-layout :paint-texture-uploads)
        :live-resources (ffi/read-field state f/gl-frame-state-layout :live-resources)
-       :live-effects (ffi/read-field state f/gl-frame-state-layout :live-effects)})))
+       :live-effects (ffi/read-field state f/gl-frame-state-layout :live-effects)
+       :draw-commands (ffi/read-field state f/gl-frame-state-layout :draw-commands)
+       :geometry-commands (ffi/read-field state f/gl-frame-state-layout :geometry-commands)
+       :group-commands (ffi/read-field state f/gl-frame-state-layout :group-commands)})))
 
 (defn create-context
   [& [{:keys [title width height bounds visible]
