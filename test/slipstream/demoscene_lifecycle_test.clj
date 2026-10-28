@@ -4,6 +4,7 @@
             [jolt.nrepl :as jolt-nrepl]
             [nrepl.core :as nrepl]
             [slipstream.example.demoscene :as demo]
+            [slipstream.example.demoscene-shader :as visuals]
             [slipstream.glimmer :as sg]
             [slipstream.glimmer-renderer :as renderer]))
 
@@ -229,6 +230,153 @@
       (is (pos? (:port (demo/start! {:font-path test-font :port 0}))))
       (is (pos? @actual-port))
       (is (= 42 (:lifecycle-eval @demo/state))))))
+
+(defn- capture-live-frame [context]
+  (let [pending (promise)]
+    (ui/on-gui
+      (fn []
+        (deliver pending
+                 (try
+                   {:context context
+                    :close-requested? (renderer/should-close? context)
+                    :frame (renderer/capture! context)}
+                   (catch Throwable error
+                     {:error error})))))
+    (let [{:keys [error] :as result}
+          (deref pending 5000 {:error (ex-info "Timed out capturing the live frame" {})})]
+      (when error (throw error))
+      result)))
+
+(defn- exercise-live-nrepl [port context]
+  (let [transport (nrepl/connect "127.0.0.1" port)]
+    (try
+      (let [session (nrepl/new-session transport)
+            request (fn [message]
+                      (nrepl/message transport (assoc message :session session)))
+            evaluate (fn evaluate
+                       ([code] (evaluate code nil))
+                       ([code ns]
+                        (let [responses (request (cond-> {:op "eval" :code code}
+                                                   ns (assoc :ns ns)))
+                              status (:status (nrepl/combine-responses responses))]
+                          (is (not (some #{"error" "eval-error"} status))
+                              (pr-str (nrepl/combine-responses responses)))
+                          (nrepl/response-values responses))))
+            description (request {:op "describe"})
+            completions (request {:op "complete"
+                                  :ns "slipstream.example.demoscene"
+                                  :prefix "sta"})]
+        (is (contains? (:ops (nrepl/combine-responses description)) "eval"))
+        (is (contains? (:ops (nrepl/combine-responses description)) "complete"))
+        (is (some #(= "start!" (get % "candidate"))
+                  (:completions (nrepl/combine-responses completions))))
+        (evaluate (str "(defn update-state [state _dt _input] "
+                       "(assoc state :live-update :redefined))")
+                  "slipstream.example.demoscene-shader")
+        (loop [remaining 100]
+          (let [value (first (evaluate "(:live-update @slipstream.example.demoscene/state)"))]
+            (when-not (= :redefined value)
+              (if (zero? remaining)
+                (is (= :redefined value))
+                (do
+                  (Thread/sleep 10)
+                  (recur (dec remaining)))))))
+        (evaluate "(defn update-state [state _dt _input] state)"
+                  "slipstream.example.demoscene-shader")
+        (is (= [{:density 2.5 :speed 0.0 :live-eval true}]
+               (evaluate (str "(swap! slipstream.example.demoscene/state assoc "
+                              ":density 2.5 :speed 0.0 :live-eval true) "
+                              "(select-keys @slipstream.example.demoscene/state "
+                              "[:density :speed :live-eval])"))))
+        (let [{before-context :context before-frame :frame} (capture-live-frame context)]
+          (is (false? (:close-requested? (capture-live-frame context))))
+          (evaluate (str "(def palette {:a [1.0 0.0 0.0] :b [0.0 1.0 0.0] "
+                         ":c [0.0 0.0 1.0] :d [1.0 0.5 0.25]})")
+                    "slipstream.example.demoscene-shader")
+          (is (= [[1.0 0.0 0.0]]
+                 (evaluate (str "(get-in (slipstream.example.demoscene-shader/shader-effect "
+                                "@slipstream.example.demoscene/state) "
+                                "[:uniforms :paletteA :value])"))))
+          (evaluate "(swap! slipstream.example.demoscene/state update :density + 0.125)")
+          (let [{after-context :context after-frame :frame} (capture-live-frame context)]
+            (is (identical? before-context after-context))
+            (is (= [640 400] [(:width before-frame) (:height before-frame)]))
+            (is (not= (hash (vec (:pixels before-frame)))
+                      (hash (vec (:pixels after-frame))))
+                "the redefined palette must render in the existing window")))
+        (is (= [nil] (evaluate "(slipstream.example.demoscene/stop!)")))
+        {:closed-via-nrepl? true})
+      (finally
+        (nrepl/close transport)))))
+
+(deftest rich-nrepl-redefines-state-palette-and-update-function-in-one-live-window
+  (let [real-start jolt-nrepl/start
+        real-run ui/run
+        original-update-state visuals/update-state
+        original-palette visuals/palette
+        original-state @demo/state
+        actual-port (atom nil)
+        context (atom nil)
+        client-result (promise)]
+    (try
+      (with-redefs [jolt-nrepl/start
+                    (fn [port middleware opts]
+                      (let [stop (real-start port middleware (assoc opts :port-file nil))]
+                        (reset! actual-port (:port (meta stop)))
+                        stop))
+                    ui/run
+                    (fn [root-fn & {:as opts}]
+                      (let [original-on-start (:on-start opts)
+                            opts (assoc opts :visible false :max-frames nil
+                                        :on-start
+                                        (fn []
+                                          (when original-on-start (original-on-start))
+                                          (reset! context (sg/current-context))
+                                          (future
+                                            (try
+                                              (deliver client-result
+                                                       (exercise-live-nrepl @actual-port @context))
+                                              (catch Throwable error
+                                                (deliver client-result {:error error})
+                                                (demo/stop!))))))]
+                        (apply real-run root-fn (mapcat identity opts))))]
+        (is (pos? (:port (demo/start! {:font-path test-font :port 0
+                                      :width 320 :height 200 :auto-quit-ms 10000})))))
+      (let [{:keys [error] :as result}
+            (deref client-result 1000 {:error (ex-info "Live nREPL client did not finish" {})})]
+        (when error (throw error))
+        (is (:closed-via-nrepl? result)))
+      (finally
+        (alter-var-root #'visuals/update-state (constantly original-update-state))
+        (alter-var-root #'visuals/palette (constantly original-palette))
+        (reset! demo/state original-state)
+        (demo/stop!)))))
+
+(deftest capture-dir-writes-a-real-ppm-from-the-running-window
+  (let [real-start jolt-nrepl/start
+        real-run ui/run
+        capture-dir (java.io.File. "native/build/demoscene-lifecycle-captures")]
+    (doseq [file (reverse (file-seq capture-dir))] (.delete file))
+    (try
+      (with-redefs [jolt-nrepl/start
+                    (fn [port middleware opts]
+                      (real-start port middleware (assoc opts :port-file nil)))
+                    ui/run
+                    (fn [root-fn & {:as opts}]
+                      (apply real-run root-fn
+                             (mapcat identity (assoc opts :visible false))))]
+        (is (pos? (:port (demo/start! {:font-path test-font :port 0
+                                      :width 160 :height 100 :max-frames 2
+                                      :capture-dir (str capture-dir)})))))
+      (let [files (.listFiles capture-dir)]
+        (is (= 1 (count files)))
+        (when (= 1 (count files))
+          (is (= "frame-000001.ppm" (.getName (first files))))
+          (is (< 15 (.length (first files))))
+          (with-open [input (java.io.FileInputStream. (first files))]
+            (is (= [80 54] [(.read input) (.read input)])))))
+      (finally
+        (doseq [file (reverse (file-seq capture-dir))] (.delete file))))))
 
 (deftest cli-requires-a-font-and-only-adds-limits-when-requested
   (is (string? (:error (demo/parse-args []))))

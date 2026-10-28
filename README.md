@@ -51,14 +51,19 @@ SLIPSTREAM_TEST_FONT=/System/Library/Fonts/Geneva.ttf jolt parity
 
 `jolt test` runs unit, native integration, exact golden, and parity-contract tests. `jolt parity` compares Slipstream's atlas, mesh, output, and reference-frame behavior with the upstream Slughorn example.
 
-Run the reference and reactive examples:
+Run the reference, reactive, and live demoscene examples:
 
 ```sh
 jolt -m slipstream.example.glfw "$SLIPSTREAM_TEST_FONT"
 jolt -m slipstream.example.reactive "$SLIPSTREAM_TEST_FONT" --auto-quit-ms 10000
+jolt -m slipstream.example.demoscene "$SLIPSTREAM_TEST_FONT"
 ```
 
-The reactive example's timed mode performs its golden/smoke checkpoint sequence. Add `--capture-dir native/build/reactive-captures` to write inspection images. GUI checks require a working display/OpenGL context; dependency resolution or compilation alone is not visual verification.
+The reactive example's timed mode performs its golden/smoke checkpoint sequence. Add `--capture-dir native/build/reactive-captures` to write inspection images.
+
+The demoscene starts a rich nREPL on port `7888` and runs until its native window closes. Connect an editor to change reactive state, redefine palette/update functions, and evaluate `slipstream.example.demoscene/stop!` without restarting the window. See the [complete demoscene guide](docs/demoscene.md) for controls, lifecycle, useful evaluations, and test/capture options.
+
+GUI checks require a working display/OpenGL context; dependency resolution or compilation alone is not visual verification.
 
 ## Declarative scenes
 

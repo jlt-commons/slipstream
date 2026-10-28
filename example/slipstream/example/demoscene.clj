@@ -4,7 +4,8 @@
             [jolt.nrepl :as nrepl]
             [slipstream.example.demoscene-shader :as visuals]
             [slipstream.glimmer :as sg]
-            [slipstream.glimmer-renderer :as renderer]))
+            [slipstream.glimmer-renderer :as renderer])
+  (:import [java.io File FileOutputStream]))
 
 (def ^:private rich-middleware
   '[nrepl.middleware/default-middleware cider.nrepl/cider-middleware])
@@ -27,6 +28,31 @@
       (let [input (renderer/input-snapshot context)
             mouse (renderer/cursor->bounds context [0 1 0 1])]
         (swap! state visuals/update-state dt (assoc input :mouse mouse))))))
+
+(defn- write-ppm! [path {:keys [width height pixels]}]
+  (let [rgb (byte-array (* width height 3))]
+    (doseq [y (range height)
+            x (range width)]
+      (let [source (* 4 (+ (* (- height 1 y) width) x))
+            target (* 3 (+ (* y width) x))]
+        (doseq [channel (range 3)]
+          (aset rgb (+ target channel) (aget pixels (+ source channel))))))
+    (with-open [out (FileOutputStream. path)]
+      (.write out (.getBytes (str "P6\n" width " " height "\n255\n") "UTF-8"))
+      (.write out rgb))))
+
+(defn- maybe-capture! [capture-dir capture-state]
+  (when capture-dir
+    (let [{:keys [index captured-at]} @capture-state
+          now (System/currentTimeMillis)]
+      (when (or (zero? index) (>= (- now captured-at) 2000))
+        (when-let [context (sg/current-context)]
+          (let [frame (renderer/capture! context)
+                next-index (inc index)
+                directory (File. (str capture-dir))]
+            (.mkdirs directory)
+            (write-ppm! (File. directory (format "frame-%06d.ppm" next-index)) frame)
+            (reset! capture-state {:index next-index :captured-at now})))))))
 
 (defn- stop-server! [{:keys [server-stopped? stop-server]}]
   (when (compare-and-set! server-stopped? false true)
@@ -99,17 +125,19 @@
                          (/ (- (nth bounds 1) (nth bounds 0))
                             (- (nth bounds 3) (nth bounds 2)))
                          (/ (double width) height))
-                previous-frame (atom (System/nanoTime))]
+                previous-frame (atom (System/nanoTime))
+                capture-state (atom {:index 0 :captured-at 0})]
             (ui/run #(app font-path aspect)
                     :title "Slipstream demoscene"
                     :width width
                     :height height
                     :bounds bounds
-                    :capture-dir capture-dir
                     :on-start (fn []
                                 (when @(:close-requested? run)
                                   (request-native-close!)))
-                    :after-render #(advance-from-native-input! previous-frame)
+                    :after-render #(do
+                                     (advance-from-native-input! previous-frame)
+                                     (maybe-capture! capture-dir capture-state))
                     :max-frames max-frames
                     :auto-quit-ms auto-quit-ms))
           {:port (:port run)})))))

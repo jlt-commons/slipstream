@@ -63,6 +63,8 @@ Public layout vars:
 - `gl-draw-command-layout` — resource/paint/effect handles and full draw/mask state.
 - `gl-uniform-layout` — name, type/components, separate float/int/uint arrays of 16.
 - `gl-frame-state-layout` — viewport/FBO/sizes/projection and instrumentation counters.
+- `gl-input-layout` — cursor x/y, scroll x/y deltas, left/right/middle buttons, Space, and R.
+- `gl-cursor-layout` — native window-coordinate cursor x/y doubles.
 
 Use `ffi/layout-size`, `ffi/read-field`, and `ffi/write-field` with these descriptors rather than duplicating byte offsets.
 
@@ -127,6 +129,9 @@ Canvas commit outputs may contain borrowed named-key storage. Copy data while it
 | `(gl-context-destroy context)` — `:pointer` | `:int32` | `ss_gl_context_destroy`. |
 | `(gl-poll context)` / `(gl-swap context)` — `:pointer` | `:int32` | `ss_gl_poll` / `ss_gl_swap`. |
 | `(gl-should-close context)` — `:pointer` | `:bool` | `ss_gl_should_close`. |
+| `(gl-input-snapshot context out)` — two `:pointer` | `:int32` | `ss_gl_input_snapshot`; fills `gl-input-layout`, consuming accumulated wheel deltas. |
+| `(gl-cursor-snapshot context out)` — two `:pointer` | `:int32` | `ss_gl_cursor_snapshot`; fills `gl-cursor-layout` without consuming input deltas. |
+| `(gl-request-close context)` — `:pointer` | `:int32` | `ss_gl_request_close`; sets the native close flag for orderly loop teardown. |
 | `(gl-program context key)` — `:pointer :string` | `:pointer` | `ss_gl_program`; key `"paint"`. |
 | `(gl-effect-program context program-key effect-key declarations vertex-hook fragment-hook requires-sdf uniforms count)` — six pointers, `:uint8 :pointer :uint64` | `:pointer` | `ss_gl_effect_program`; context-owned effect instance. |
 | `(gl-upload context atlas root-layer)` — three pointers | `:pointer` | `ss_gl_upload`; context-owned resource. |
@@ -187,6 +192,15 @@ jolt -m slipstream.example.reactive <font.ttf> [--auto-quit-ms N] [--capture-dir
 ```
 
 Timed mode runs the full reactive checkpoint/golden sequence. Use `--auto-quit-ms 10000` for the established complete run. The example demonstrates text, placement/color, geometry, gradient, mask, blend, SDF effect parameter, and queued REPL updates in one window.
+
+## Live demoscene CLI
+
+```sh
+jolt -m slipstream.example.demoscene <font.ttf> [--port N] [--capture-dir PATH]
+                                               [--max-frames N] [--auto-quit-ms N]
+```
+
+The demoscene uses the reactive GL input/close bindings above and starts rich default/CIDER nREPL middleware before native UI creation. Its default port is `7888`; `0` selects an OS-assigned port. With no frame/time limit it runs until native close or `slipstream.example.demoscene/stop!`. See the [demoscene guide](demoscene.md) for controls, `start!`/`stop!`, live evaluation, and captures.
 
 ## Compatibility versus advanced rendering
 

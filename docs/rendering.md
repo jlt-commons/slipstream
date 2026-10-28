@@ -51,6 +51,14 @@ Each frame polls, drains scheduled work on the UI thread, renders, invokes `afte
 - `(schedule! context work)` — run immediately only before the loop starts; queue while running; drop after teardown.
 - `(capture! context)` — return `{:width w :height h :pixels byte-array}` containing RGBA bytes. This is test/instrumentation API.
 
+### Native input and close
+
+- `(input-snapshot context)` — return `{:x x :y y :scroll-x dx :scroll-y dy :left bool :right bool :middle bool :space bool :r bool}`. Cursor coordinates are native window coordinates. Scroll values are deltas accumulated since the previous snapshot and consumed by that snapshot; button/key values report held state.
+- `(cursor->bounds context bounds)` — map the current cursor into Y-up `[left right bottom top]` scene bounds. Pass nil for `[0 aspect 0 1]`, using the current framebuffer aspect. Mapping uses window rather than framebuffer coordinates so high-DPI windows remain correct. Empty windows/framebuffers throw instead of producing invalid coordinates.
+- `(request-close! context)` — set the native window's close flag and return nil. The running loop observes the flag and exits through normal unmount/resource teardown; it does not destroy the context inline.
+
+These operations belong on the UI/context-owning thread. Code running on an nREPL worker should use `glimmer.core/on-gui` rather than calling native context operations directly. See the [demoscene guide](demoscene.md) for a complete live input and shutdown example.
+
 ## GPU resources
 
 ### `(upload! context cpu-resource)`

@@ -368,7 +368,9 @@
              (future
                (renderer/schedule! context
                  #(reset! scheduled-thread (Thread/currentThread)))
-               (deliver posted true)))
+               (deliver posted true))
+             (when-not (deref posted 1000 false)
+               (throw (ex-info "Timed out scheduling work from the producer thread" {}))))
            (when (and @scheduled-thread (not @close-posted?))
              (renderer/schedule! context #(reset! post-disposal true))
              (reset! close-posted? true)
