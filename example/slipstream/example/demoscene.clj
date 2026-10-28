@@ -21,7 +21,7 @@
   (metrics/new-collector {:profile :showcase :intensity 1 :sdf nil}))
 
 (defn load-profile! [profile & [{:keys [intensity sdf]}]]
-  (let [config (profiles/profile-config profile {:intensity (or intensity 1) :sdf sdf})]
+  (let [config (profiles/profile-config profile {:intensity (if (nil? intensity) 1 intensity) :sdf sdf})]
     (swap! state merge config)
     (swap! metrics-collector update :options merge config)
     config))
@@ -127,9 +127,9 @@
   (when-not font-path
     (throw (ex-info "A TTF/OTF font path is required" {:option :font-path})))
   (let [config (profiles/profile-config (or profile :showcase)
-                                        {:intensity (or intensity 1) :sdf sdf})
+                                        {:intensity (if (nil? intensity) 1 intensity) :sdf sdf})
         warmup-ms (or warmup-ms 2000)
-        metrics-enabled? (not= false metrics)
+        metrics-enabled? (true? metrics)
         _ (when-not (and (integer? warmup-ms) (not (neg? warmup-ms)))
             (throw (ex-info "warmup-ms must be a non-negative integer"
                             {:option :warmup-ms :value warmup-ms})))

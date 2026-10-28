@@ -3,6 +3,7 @@
             [glimmer.backend :as b]
             [glimmer.core :as ui]
             [glimmer.ratom :as r]
+            [jolt.nrepl :as jolt-nrepl]
             [slipstream.example.demoscene :as demo]
             [slipstream.example.demoscene-profiles :as profiles]
             [slipstream.example.demoscene-shader :as visuals]
@@ -146,7 +147,8 @@
         (is (seq (filter (id-namespace? namespace) all)) namespace)))))
 
 (deftest profile-hud-is-aware-of-workload-and-metrics-text-is-change-driven
-  (let [state (assoc (profile-state :geometry) :metrics-text "FPS=42.0 resources=8")
+  (let [state (assoc (profile-state :geometry) :metrics true
+                     :metrics-text "FPS=42.0 resources=8")
         scene (profiles/profile-scene state)
         status (first (elements-by-id (scene-elements scene) :hud-status))
         metrics (first (elements-by-id (scene-elements scene) :hud-metrics))]
@@ -196,8 +198,51 @@
       (is (identical? state-object demo/state))
       (is (= :unknown-profile
              (:reason (error-data #(demo/load-profile! :unknown {})))))
+      (is (= :invalid-intensity
+             (:reason (error-data #(demo/load-profile! :text {:intensity false})))))
       (is (= {:profile :text :intensity 2 :sdf false}
              (select-keys @demo/state [:profile :intensity :sdf])))
+      (finally
+        (reset! demo/state original)))))
+
+(deftest start-rejects-false-intensity-before-starting-services
+  (let [original @demo/state
+        starts (atom 0)]
+    (try
+      (with-redefs [jolt-nrepl/start
+                    (fn [& _]
+                      (swap! starts inc)
+                      (with-meta (fn [] nil) {:port 7888 :port-file nil}))
+                    ui/run (fn [& _] nil)]
+        (is (= :invalid-intensity
+               (:reason (error-data #(demo/start! {:font-path test-font
+                                                   :intensity false}))))))
+      (is (zero? @starts))
+      (finally
+        (reset! demo/state original)))))
+
+(deftest default-showcase-start-does-not-sample-or-append-metrics
+  (let [original @demo/state
+        scenes (atom [])
+        samples (atom 0)]
+    (try
+      (with-redefs [jolt-nrepl/start
+                    (fn [& _] (with-meta (fn [] nil) {:port 7888 :port-file nil}))
+                    sg/current-context (constantly :native-context)
+                    renderer/input-snapshot (fn [_] {})
+                    renderer/cursor->bounds (fn [_ _] [0.75 0.5])
+                    renderer/frame-state (fn [_] (swap! samples inc) {})
+                    ui/run
+                    (fn [root-fn & {:as opts}]
+                      (swap! scenes conj (root-fn))
+                      ((:after-render opts))
+                      (swap! scenes conj (root-fn)))]
+        (demo/start! {:font-path test-font}))
+      (is (= 2 (count @scenes)))
+      (is (every? #(empty? (elements-by-id (scene-elements %) :hud-metrics)) @scenes))
+      (is (zero? @samples))
+      (is (nil? (:metrics-text @demo/state)))
+      (is (false? (:metrics @demo/state)))
       (finally
         (reset! demo/state original)))))
 

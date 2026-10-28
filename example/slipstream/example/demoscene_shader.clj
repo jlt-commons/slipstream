@@ -21,7 +21,7 @@
    :profile :showcase
    :intensity 1
    :sdf nil
-   :metrics true
+   :metrics false
    :metrics-text nil
    :vectors {}})
 
