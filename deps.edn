@@ -32,6 +32,8 @@
                                       "native/canvas.cpp"
                                       "native/freetype.cpp"
                                       "native/glfw_renderer.cpp"
+                                      "native/reactive_renderer.cpp"
+                                      "native/reactive_renderer.hpp"
                                       "native/parity_oracle.cpp"
                                       (str slughorn "/example/slughorn-example-glfw.cpp")
                                       (str slughorn "/slughorn/slughorn.cpp")

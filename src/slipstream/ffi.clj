@@ -137,6 +137,25 @@
 
 (def layers-view-layout
   (ffi/layout [:struct [[:data :pointer] [:count :uint64]]]))
+
+(def gl-context-options-layout
+  (ffi/layout [:struct [[:title :pointer] [:width :int32] [:height :int32]
+                        [:bounds [:array :float 4]]
+                        [:has-bounds :uint8] [:visible :uint8]]]))
+(def gl-draw-command-layout
+  (ffi/layout [:struct [[:handle :pointer]
+                        [:transform [:struct [[:x :float] [:y :float] [:z :float]]]]
+                        [:color [:struct [[:r :float] [:g :float] [:b :float] [:a :float]]]]
+                        [:scale :float] [:visible :uint8]]]))
+(ffi/defcfn gl-context-create "ss_gl_context_create" [:pointer] :pointer)
+(ffi/defcfn gl-context-destroy "ss_gl_context_destroy" [:pointer] :int32)
+(ffi/defcfn gl-poll "ss_gl_poll" [:pointer] :int32)
+(ffi/defcfn gl-should-close "ss_gl_should_close" [:pointer] :bool)
+(ffi/defcfn gl-upload "ss_gl_upload" [:pointer :pointer :pointer] :pointer)
+(ffi/defcfn gl-release "ss_gl_release" [:pointer :pointer] :int32)
+(ffi/defcfn gl-render "ss_gl_render" [:pointer :pointer :uint64] :int32)
+(ffi/defcfn gl-swap "ss_gl_swap" [:pointer] :int32)
+
 (ffi/defcfn glfw-run "ss_glfw_run"
   [:pointer
    [:by-value [:struct [[:data :pointer] [:count :uint64]]]]

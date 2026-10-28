@@ -235,6 +235,30 @@ typedef struct SSLayersView {
   uint64_t count;
 } SSLayersView;
 
+typedef struct SSGLContextOptions {
+  const char* title;
+  int32_t width, height;
+  float bounds[4];
+  uint8_t has_bounds, visible;
+} SSGLContextOptions;
+
+typedef struct SSGLDrawCommand {
+  void* handle;
+  SSTransform transform;
+  SSColor color;
+  float scale;
+  uint8_t visible;
+} SSGLDrawCommand;
+
+void* ss_gl_context_create(const SSGLContextOptions* options) SS_NOEXCEPT;
+int ss_gl_context_destroy(void* context) SS_NOEXCEPT;
+int ss_gl_poll(void* context) SS_NOEXCEPT;
+bool ss_gl_should_close(void* context) SS_NOEXCEPT;
+void* ss_gl_upload(void* context, void* atlas, const SSLayer* root) SS_NOEXCEPT;
+int ss_gl_release(void* context, void* handle) SS_NOEXCEPT;
+int ss_gl_render(void* context, const SSGLDrawCommand* commands, uint64_t count) SS_NOEXCEPT;
+int ss_gl_swap(void* context) SS_NOEXCEPT;
+
 /* The atlas and layer storage are borrowed for the duration of this blocking
  * call. The atlas must be built and remain alive until the renderer exits. */
 int ss_glfw_run(

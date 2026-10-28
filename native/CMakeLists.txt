@@ -58,6 +58,7 @@ add_library(slipstream SHARED
   canvas.cpp
   freetype.cpp
   glfw_renderer.cpp
+  reactive_renderer.cpp
   "${SLUGHORN_HOME}/slughorn/slughorn.cpp")
 target_include_directories(slipstream PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"

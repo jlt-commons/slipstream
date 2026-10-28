@@ -152,13 +152,13 @@
   (let [cache-key (glyph-cache-key font codepoint opts)]
     (resources/acquire-cpu! cache-key #(build-glyph font codepoint opts cache-key))))
 
-(defn- text-codepoints [props]
+(defn text-codepoints [props]
   (let [text (str (:text props))]
     (if (or (:compatibility props) (:byte-wise props) (:byte-wise? props))
       (mapv #(bit-and (int %) 0xff) (.getBytes text "UTF-8"))
       (mapv int text))))
 
-(defn- update-text! [widget _old-props new-props]
+(defn- update-text! [widget _old-props new-props acquire-glyph]
   (let [old-resources (vec (:resources @widget))
         pools (reduce (fn [result resource]
                         (update result (:cache-key resource) (fnil conj []) resource))
@@ -173,7 +173,7 @@
             (fn [[out pools] [cache-key codepoint]]
               (if-let [resource (first (get pools cache-key))]
                 [(conj out resource) (update pools cache-key rest)]
-                (let [resource (compile-glyph (:font new-props) codepoint new-props)]
+                (let [resource (acquire-glyph (:font new-props) codepoint new-props)]
                   (swap! acquired conj resource)
                   [(conj out resource) pools])))
             [[] pools] (mapv vector new-keys new-codepoints))
@@ -187,22 +187,25 @@
       (resources/release! resource))
     {:acquired @acquired :released released}))
 
-(defn- update-shape! [widget old-props new-props]
+(defn- update-shape! [widget old-props new-props acquire-shape]
   (if (= (geometry-key old-props) (geometry-key new-props))
     (do
       (swap! widget assoc :props new-props)
       {:acquired [] :released []})
     (let [old-resource (:resource @widget)
-          replacement (compile-shape new-props)]
+          replacement (acquire-shape new-props)]
       (swap! widget assoc :props new-props :resource replacement)
       (resources/release! old-resource)
       {:acquired [replacement] :released (if old-resource [old-resource] [])})))
 
 (defn update-node!
-  [widget old-props new-props]
-  (case (:tag @widget)
-    :text (update-text! widget old-props new-props)
-    (:shape :path) (update-shape! widget old-props new-props)
-    (do
-      (swap! widget assoc :props new-props)
-      {:acquired [] :released []})))
+  ([widget old-props new-props]
+   (update-node! widget old-props new-props
+                 {:shape compile-shape :glyph compile-glyph}))
+  ([widget old-props new-props acquire]
+   (case (:tag @widget)
+     :text (update-text! widget old-props new-props (:glyph acquire))
+     (:shape :path) (update-shape! widget old-props new-props (:shape acquire))
+     (do
+       (swap! widget assoc :props new-props)
+       {:acquired [] :released []}))))

@@ -159,7 +159,7 @@
                                           :blend-mode 0
                                           0))))))
 
-(defn- call-with-layers [layers f]
+(defn call-with-layers [layers f]
   (let [layers (vec layers)
         n (count layers)
         size (ffi/layout-size f/layer-layout)
