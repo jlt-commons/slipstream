@@ -147,6 +147,13 @@
                         [:transform [:struct [[:x :float] [:y :float] [:z :float]]]]
                         [:color [:struct [[:r :float] [:g :float] [:b :float] [:a :float]]]]
                         [:scale :float] [:visible :uint8]]]))
+(def gl-frame-state-layout
+  (ffi/layout [:struct [[:viewport [:array :int32 4]]
+                        [:framebuffer-size [:array :int32 2]]
+                        [:window-size [:array :int32 2]]
+                        [:projection [:array :float 16]]
+                        [:shader-compilations :uint32]
+                        [:resource-uploads :uint32]]]))
 (ffi/defcfn gl-context-create "ss_gl_context_create" [:pointer] :pointer)
 (ffi/defcfn gl-context-destroy "ss_gl_context_destroy" [:pointer] :int32)
 (ffi/defcfn gl-poll "ss_gl_poll" [:pointer] :int32)
@@ -155,6 +162,8 @@
 (ffi/defcfn gl-release "ss_gl_release" [:pointer :pointer] :int32)
 (ffi/defcfn gl-render "ss_gl_render" [:pointer :pointer :uint64] :int32)
 (ffi/defcfn gl-swap "ss_gl_swap" [:pointer] :int32)
+(ffi/defcfn gl-test-resize "ss_gl_test_resize" [:pointer :int32 :int32] :int32)
+(ffi/defcfn gl-test-frame-state "ss_gl_test_frame_state" [:pointer :pointer] :int32)
 
 (ffi/defcfn glfw-run "ss_glfw_run"
   [:pointer

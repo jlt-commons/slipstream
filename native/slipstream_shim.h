@@ -250,6 +250,14 @@ typedef struct SSGLDrawCommand {
   uint8_t visible;
 } SSGLDrawCommand;
 
+typedef struct SSGLFrameState {
+  int32_t viewport[4];
+  int32_t framebuffer_size[2];
+  int32_t window_size[2];
+  float projection[16];
+  uint32_t shader_compilations, resource_uploads;
+} SSGLFrameState;
+
 void* ss_gl_context_create(const SSGLContextOptions* options) SS_NOEXCEPT;
 int ss_gl_context_destroy(void* context) SS_NOEXCEPT;
 int ss_gl_poll(void* context) SS_NOEXCEPT;
@@ -258,6 +266,11 @@ void* ss_gl_upload(void* context, void* atlas, const SSLayer* root) SS_NOEXCEPT;
 int ss_gl_release(void* context, void* handle) SS_NOEXCEPT;
 int ss_gl_render(void* context, const SSGLDrawCommand* commands, uint64_t count) SS_NOEXCEPT;
 int ss_gl_swap(void* context) SS_NOEXCEPT;
+
+/* Native integration instrumentation: resize the real window and read back GL
+ * viewport/projection state plus per-context compilation/upload counts. */
+int ss_gl_test_resize(void* context, int32_t width, int32_t height) SS_NOEXCEPT;
+int ss_gl_test_frame_state(void* context, SSGLFrameState* out) SS_NOEXCEPT;
 
 /* The atlas and layer storage are borrowed for the duration of this blocking
  * call. The atlas must be built and remain alive until the renderer exits. */

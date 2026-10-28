@@ -183,6 +183,8 @@ struct GLContext {
   GLuint vertex = 0;
   GLuint fragment = 0;
   GLuint program = 0;
+  uint32_t shader_compilations = 0;
+  uint32_t resource_uploads = 0;
   bool has_bounds = false;
   float bounds[4] = {0, 1, 0, 1};
   std::unordered_set<GLResource*> resources;
@@ -244,7 +246,9 @@ void initialize_context(GLContext* context) {
   if(!gladLoadGLLoader(reinterpret_cast<GLADloadproc>(glfwGetProcAddress)))
     throw std::runtime_error("gladLoadGLLoader failed");
   context->vertex = slipstream::reactive::compile_shader(GL_VERTEX_SHADER, vertex_source);
+  ++context->shader_compilations;
   context->fragment = slipstream::reactive::compile_shader(GL_FRAGMENT_SHADER, fragment_source);
+  ++context->shader_compilations;
   context->program = slipstream::reactive::link_program(context->vertex, context->fragment);
   glUseProgram(context->program);
   glUniform1i(glGetUniformLocation(context->program, "u_curveTexture"), 0);
@@ -460,6 +464,7 @@ void* ss_gl_upload(void* handle, void* atlasHandle, const SSLayer* root) noexcep
       context->resources.insert(resource.get());
       resources.insert(resource.get());
     }
+    ++context->resource_uploads;
     return resource.release();
   );
 }
@@ -526,6 +531,32 @@ int ss_gl_swap(void* handle) noexcept {
   ss_try(1,
     auto* context = require_context(handle);
     glfwSwapBuffers(context->window);
+    return 0;
+  );
+}
+
+int ss_gl_test_resize(void* handle, int32_t width, int32_t height) noexcept {
+  ss_try(1,
+    auto* context = require_context(handle);
+    if(width <= 0 || height <= 0) throw std::invalid_argument("window size must be positive");
+    glfwSetWindowSize(context->window, width, height);
+    glfwPollEvents();
+    return 0;
+  );
+}
+
+int ss_gl_test_frame_state(void* handle, SSGLFrameState* out) noexcept {
+  ss_try(1,
+    auto* context = require_context(handle);
+    if(!out) throw std::invalid_argument("frame state output is null");
+    glfwMakeContextCurrent(context->window);
+    std::memset(out, 0, sizeof(*out));
+    glGetIntegerv(GL_VIEWPORT, out->viewport);
+    glfwGetFramebufferSize(context->window, &out->framebuffer_size[0], &out->framebuffer_size[1]);
+    glfwGetWindowSize(context->window, &out->window_size[0], &out->window_size[1]);
+    glGetUniformfv(context->program, glGetUniformLocation(context->program, "u_mvp"), out->projection);
+    out->shader_compilations = context->shader_compilations;
+    out->resource_uploads = context->resource_uploads;
     return 0;
   );
 }

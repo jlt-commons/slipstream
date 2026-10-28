@@ -179,16 +179,105 @@
       (is @(:destroyed? (:atlas cpu)))
       (renderer/destroy! context))))
 
-(deftest resize-renders-reuse-context-and-never-reupload
-  (with-fake-native [native (fake-native)]
-    (let [context (renderer/create-context
-                    {:width 640 :height 480 :bounds [0 2 0 1]})]
-      (renderer/render! context [])
-      (renderer/render! context [])
-      (renderer/swap-buffers! context)
-      (is (= [[:create 1] [:render 1 0] [:render 1 0] [:swap 1]]
-             @(:calls native)))
-      (renderer/destroy! context))))
+(defn- check! [value message data]
+  (when-not value
+    (throw (ex-info message data))))
+
+(defn- close? [a b]
+  (< (Math/abs (- (double a) (double b))) 0.00001))
+
+(defn- frame-state [context]
+  (ffi/with-layout [out f/gl-frame-state-layout]
+    (when-not (zero? (f/gl-test-frame-state (:handle context) out))
+      (throw (ex-info "gl-test-frame-state failed" {:error (f/last-error)})))
+    {:viewport (mapv #(ffi/read-field out f/gl-frame-state-layout [:viewport %]) (range 4))
+     :framebuffer-size (mapv #(ffi/read-field out f/gl-frame-state-layout [:framebuffer-size %]) (range 2))
+     :window-size (mapv #(ffi/read-field out f/gl-frame-state-layout [:window-size %]) (range 2))
+     :projection (mapv #(ffi/read-field out f/gl-frame-state-layout [:projection %]) (range 16))
+     :shader-compilations (ffi/read-field out f/gl-frame-state-layout :shader-compilations)
+     :resource-uploads (ffi/read-field out f/gl-frame-state-layout :resource-uploads)}))
+
+(defn- native-resize! [context width height]
+  (when-not (zero? (f/gl-test-resize (:handle context) width height))
+    (throw (ex-info "gl-test-resize failed" {:error (f/last-error)}))))
+
+(defn- check-projection! [actual expected label]
+  (doseq [[i expected-value] (map-indexed vector expected)]
+    (check! (close? (nth actual i) expected-value)
+            "native orthographic projection mismatch"
+            {:label label :index i :actual (nth actual i) :expected expected-value})))
+
+(defn resize-smoke! []
+  (let [cpu (shape-resource)
+        context (renderer/create-context
+                  {:title "slipstream native resize" :width 320 :height 240})
+        handle (atom nil)
+        result (atom nil)]
+    (try
+      (reset! handle (renderer/upload! context cpu))
+      (let [commands [{:handle @handle :color [1 1 1 1]}]]
+        (renderer/render! context commands)
+        (let [initial (frame-state context)]
+          (native-resize! context 517 313)
+          (renderer/render! context commands)
+          (let [resized (frame-state context)
+                [width height] (:framebuffer-size resized)
+                aspect (/ (double width) height)
+                expected [(/ 2.0 aspect) 0 0 0
+                          0 2 0 0
+                          0 0 -0.01 0
+                          -1 -1 0 1]]
+            (check! (= [0 0 (first (:framebuffer-size initial))
+                        (second (:framebuffer-size initial))]
+                       (:viewport initial))
+                    "initial native viewport does not match framebuffer" initial)
+            (check! (= [0 0 width height] (:viewport resized))
+                    "resized native viewport does not match framebuffer" resized)
+            (check! (not= (:framebuffer-size initial) (:framebuffer-size resized))
+                    "native resize did not change framebuffer dimensions"
+                    {:initial initial :resized resized})
+            (check-projection! (:projection resized) expected :default-y-up)
+            (check! (= 1 (:resource-uploads initial) (:resource-uploads resized))
+                    "resize reuploaded native resources"
+                    {:initial initial :resized resized})
+            (check! (and (pos? (:shader-compilations initial))
+                         (= (:shader-compilations initial)
+                            (:shader-compilations resized)))
+                    "resize recompiled shaders"
+                    {:initial initial :resized resized})
+            (reset! result
+                    {:initial-viewport (:viewport initial)
+                     :resized-viewport (:viewport resized)
+                     :window-size (:window-size resized)
+                     :framebuffer-size (:framebuffer-size resized)
+                     :high-dpi (not= (:window-size resized) (:framebuffer-size resized))
+                     :default-projection-verified true
+                     :shader-compilations (:shader-compilations resized)
+                     :resource-uploads (:resource-uploads resized)}))))
+      (finally
+        (when @handle (renderer/release! context @handle))
+        (renderer/destroy! context)
+        (resources/release! cpu)))
+    (let [explicit (renderer/create-context
+                     {:title "slipstream explicit bounds" :width 320 :height 240
+                      :bounds [-2 4 3 7]})]
+      (try
+        (renderer/render! explicit [])
+        (let [state (frame-state explicit)]
+          (check-projection! (:projection state)
+                             [(/ 1.0 3.0) 0 0 0
+                              0 0.5 0 0
+                              0 0 -0.01 0
+                              (/ -1.0 3.0) -2.5 0 1]
+                             :explicit-y-up)
+          (check! (= [0 0 (first (:framebuffer-size state))
+                      (second (:framebuffer-size state))]
+                     (:viewport state))
+                  "explicit-bounds viewport mismatch" state)
+          (swap! result assoc :explicit-projection-verified true))
+        (finally
+          (renderer/destroy! explicit))))
+    (println @result)))
 
 (deftest scheduled-work-runs-on-the-ui-thread-and-disposal-drops-the-queue
   (with-fake-native [native (fake-native)]
