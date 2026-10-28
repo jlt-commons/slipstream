@@ -277,12 +277,64 @@
             "zoom did not change the upstream frame")
     (println "PASS projection toggle/reset, orbit, pan, zoom, reset, and clean exit")))
 
-(defn -main [& _]
-  (let [{:keys [fail error]} (t/run-tests 'slipstream.parity-test)]
-    (when (zero? (+ fail error))
-      (compare-command-contract!)
-      (compare-initial-frame! "default-32" nil 32)
-      (compare-initial-frame! "piped-16" "kK\n" 16)
-      (compare-control-sequence!)
-      (println "All native data, visual, and behavior parity checks passed."))
-    (System/exit (if (zero? (+ fail error)) 0 1))))
+(defn- compare-scroll-injection! []
+  (let [root (absolute-path "native/build/parity/visual-scroll-injection")
+        cpp-baseline (str root "/cpp-baseline.ppm")
+        jolt-baseline (str root "/jolt-baseline.ppm")
+        cpp-injected (str root "/cpp-injected.ppm")
+        jolt-injected (str root "/jolt-injected.ppm")
+        _ (create-directories! root)
+        _ (doseq [path [cpp-baseline jolt-baseline cpp-injected jolt-injected]]
+            (delete-file! path))
+        font-args [test-font "--curve-precision" "32"]
+        cpp (run-process "scroll-baseline-cpp" (into [oracle-path] font-args)
+                         {:env {"SLIPSTREAM_PARITY_CAPTURE" cpp-baseline
+                                "SLIPSTREAM_PARITY_MAX_FRAMES" "1"}})
+        jolt (run-process "scroll-baseline-jolt"
+                          (jolt-arguments
+                            (into font-args ["--frames" "1" "--capture" jolt-baseline]))
+                          {})]
+    (check! (zero? (:exit cpp)) (str "upstream scroll baseline failed: " (:err cpp)))
+    (check! (zero? (:exit jolt)) (str "Jolt scroll baseline failed: " (:err jolt)))
+    (check-file= cpp-baseline jolt-baseline)
+    (let [cpp (run-process "scroll-noncapture-cpp" (into [oracle-path] font-args)
+                           {:env {"SLIPSTREAM_PARITY_MAX_FRAMES" "1"
+                                  "SLIPSTREAM_PARITY_INJECT_SCROLL" "1"}})
+          jolt (run-process "scroll-noncapture-jolt"
+                            (jolt-arguments (into font-args ["--frames" "1"]))
+                            {:env {"SLIPSTREAM_PARITY_INJECT_SCROLL" "1"}})]
+      (check! (zero? (:exit cpp)) (str "upstream non-capture scroll failed: " (:err cpp)))
+      (check! (zero? (:exit jolt)) (str "Jolt non-capture scroll failed: " (:err jolt)))
+      (check! (.contains (:err cpp) "SLIPSTREAM_PARITY_SCROLL_CALLBACK")
+              "maxFrames alone must not suppress the upstream physical scroll callback")
+      (check! (.contains (:err jolt) "SLIPSTREAM_PARITY_SCROLL_CALLBACK")
+              "--frames alone must not suppress the Jolt physical scroll callback"))
+    (let [cpp (run-process "scroll-injected-cpp" (into [oracle-path] font-args)
+                           {:env {"SLIPSTREAM_PARITY_CAPTURE" cpp-injected
+                                  "SLIPSTREAM_PARITY_MAX_FRAMES" "1"
+                                  "SLIPSTREAM_PARITY_INJECT_SCROLL" "1"}})
+          jolt (run-process "scroll-injected-jolt"
+                            (jolt-arguments
+                              (into font-args ["--frames" "1" "--capture" jolt-injected]))
+                            {:env {"SLIPSTREAM_PARITY_INJECT_SCROLL" "1"}})]
+      (check! (zero? (:exit cpp)) (str "upstream injected capture failed: " (:err cpp)))
+      (check! (zero? (:exit jolt)) (str "Jolt injected capture failed: " (:err jolt)))
+      (check-file= jolt-baseline jolt-injected)
+      (check-file= cpp-baseline cpp-injected)
+      (check-file= cpp-injected jolt-injected))
+    (println "PASS capture ignores physical scroll; non-capture scroll remains active")))
+
+(defn -main [& [focus]]
+  (if (= focus "scroll-injection")
+    (do
+      (compare-scroll-injection!)
+      (System/exit 0))
+    (let [{:keys [fail error]} (t/run-tests 'slipstream.parity-test)]
+      (when (zero? (+ fail error))
+        (compare-command-contract!)
+        (compare-initial-frame! "default-32" nil 32)
+        (compare-initial-frame! "piped-16" "kK\n" 16)
+        (compare-control-sequence!)
+        (compare-scroll-injection!)
+        (println "All native data, visual, and behavior parity checks passed."))
+      (System/exit (if (zero? (+ fail error)) 0 1)))))

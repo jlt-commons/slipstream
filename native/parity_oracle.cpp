@@ -5,13 +5,25 @@ static GLFWwindow* parityCreateWindow(
 	int width, int height, const char* title, GLFWmonitor* monitor, GLFWwindow* share);
 static void paritySwapBuffers(GLFWwindow* window);
 static void parityPollEvents();
+static GLFWkeyfun paritySetKeyCallback(GLFWwindow* window, GLFWkeyfun callback);
+static GLFWmousebuttonfun paritySetMouseButtonCallback(GLFWwindow* window, GLFWmousebuttonfun callback);
+static GLFWcursorposfun paritySetCursorPosCallback(GLFWwindow* window, GLFWcursorposfun callback);
+static GLFWscrollfun paritySetScrollCallback(GLFWwindow* window, GLFWscrollfun callback);
 
 #define SLUGHORN_FREETYPE_IMPLEMENTATION
 #define main upstream_example_main
 #define glfwCreateWindow parityCreateWindow
 #define glfwSwapBuffers paritySwapBuffers
 #define glfwPollEvents parityPollEvents
+#define glfwSetKeyCallback paritySetKeyCallback
+#define glfwSetMouseButtonCallback paritySetMouseButtonCallback
+#define glfwSetCursorPosCallback paritySetCursorPosCallback
+#define glfwSetScrollCallback paritySetScrollCallback
 #include "example/slughorn-example-glfw.cpp"
+#undef glfwSetScrollCallback
+#undef glfwSetCursorPosCallback
+#undef glfwSetMouseButtonCallback
+#undef glfwSetKeyCallback
 #undef glfwPollEvents
 #undef glfwSwapBuffers
 #undef glfwCreateWindow
@@ -136,6 +148,37 @@ int dataMain(int argc, char** argv) {
 }
 
 static GLFWwindow* activeWindow = nullptr;
+static GLFWscrollfun registeredScrollCallback = nullptr;
+
+static bool parityAutomatedCapture() {
+	return std::getenv("SLIPSTREAM_PARITY_CAPTURE")
+		|| std::getenv("SLIPSTREAM_PARITY_CAPTURE_DIR")
+		|| std::getenv("SLIPSTREAM_PARITY_CONTROLS");
+}
+
+static GLFWkeyfun paritySetKeyCallback(GLFWwindow* window, GLFWkeyfun callback) {
+	if(parityAutomatedCapture()) return nullptr;
+	return glfwSetKeyCallback(window, callback);
+}
+
+static GLFWmousebuttonfun paritySetMouseButtonCallback(GLFWwindow* window, GLFWmousebuttonfun callback) {
+	if(parityAutomatedCapture()) return nullptr;
+	return glfwSetMouseButtonCallback(window, callback);
+}
+
+static GLFWcursorposfun paritySetCursorPosCallback(GLFWwindow* window, GLFWcursorposfun callback) {
+	if(parityAutomatedCapture()) return nullptr;
+	return glfwSetCursorPosCallback(window, callback);
+}
+
+static GLFWscrollfun paritySetScrollCallback(GLFWwindow* window, GLFWscrollfun callback) {
+	if(parityAutomatedCapture()) {
+		registeredScrollCallback = nullptr;
+		return nullptr;
+	}
+	registeredScrollCallback = callback;
+	return glfwSetScrollCallback(window, callback);
+}
 
 static void applyParityControls(int frame, GLFWwindow* window, ViewState* view) {
 	if(!view) return;
@@ -179,6 +222,10 @@ static GLFWwindow* parityCreateWindow(
 
 static void parityPollEvents() {
 	glfwPollEvents();
+	if(activeWindow && swapCount == 0 && std::getenv("SLIPSTREAM_PARITY_INJECT_SCROLL") && registeredScrollCallback) {
+		registeredScrollCallback(activeWindow, 0.0, -0.2);
+		std::fprintf(stderr, "SLIPSTREAM_PARITY_SCROLL_CALLBACK\n");
+	}
 	if(activeWindow && std::getenv("SLIPSTREAM_PARITY_CONTROLS")) {
 		auto* view = static_cast<ViewState*>(glfwGetWindowUserPointer(activeWindow));
 		applyParityControls(swapCount, activeWindow, view);

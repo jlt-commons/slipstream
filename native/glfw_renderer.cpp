@@ -598,6 +598,8 @@ static void onScroll(GLFWwindow* win, double /*xoffset*/, double yoffset) {
 	if(view->distance > 1000000.0f) view->distance = 1000000.0f;
 }
 
+static GLFWscrollfun registeredScrollCallback = nullptr;
+
 static void applyParityControls(int frame, GLFWwindow* window, ViewState* view) {
 	if(!view) return;
 	switch(frame) {
@@ -725,10 +727,19 @@ int ss_glfw_run(
 		std::printf("  Esc         quit\n");
 
 		glfwSetWindowUserPointer(resources.window, &view);
-		glfwSetKeyCallback(resources.window, onKey);
-		glfwSetMouseButtonCallback(resources.window, onMouseButton);
-		glfwSetCursorPosCallback(resources.window, onCursorPos);
-		glfwSetScrollCallback(resources.window, onScroll);
+		const bool automatedCapture = capturePath
+			|| std::getenv("SLIPSTREAM_PARITY_CAPTURE")
+			|| std::getenv("SLIPSTREAM_PARITY_CAPTURE_DIR")
+			|| std::getenv("SLIPSTREAM_PARITY_CONTROLS");
+		if(!automatedCapture) {
+			glfwSetKeyCallback(resources.window, onKey);
+			glfwSetMouseButtonCallback(resources.window, onMouseButton);
+			glfwSetCursorPosCallback(resources.window, onCursorPos);
+			glfwSetScrollCallback(resources.window, onScroll);
+			registeredScrollCallback = onScroll;
+		} else {
+			registeredScrollCallback = nullptr;
+		}
 		glfwMakeContextCurrent(resources.window);
 		glfwSwapInterval(1);
 		if(!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
@@ -787,6 +798,10 @@ int ss_glfw_run(
 		int frameCount = 0;
 		while(!glfwWindowShouldClose(resources.window)) {
 			glfwPollEvents();
+			if(frameCount == 0 && std::getenv("SLIPSTREAM_PARITY_INJECT_SCROLL") && registeredScrollCallback) {
+				registeredScrollCallback(resources.window, 0.0, -0.2);
+				std::fprintf(stderr, "SLIPSTREAM_PARITY_SCROLL_CALLBACK\n");
+			}
 			if(std::getenv("SLIPSTREAM_PARITY_CONTROLS"))
 				applyParityControls(frameCount, resources.window, &view);
 			int fbW, fbH;
