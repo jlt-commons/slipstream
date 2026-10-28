@@ -50,6 +50,29 @@
       (ui/on-gui request-native-close!)))
   nil)
 
+(defn- cleanup-run! [run primary-error]
+  (try
+    (stop-server! run)
+    (catch Throwable cleanup-error
+      (if-let [primary @primary-error]
+        (binding [*out* *err*]
+          (println (str "Demoscene cleanup failed after " (ex-message primary)
+                        ": " (ex-message cleanup-error))
+                   (ex-data cleanup-error)))
+        (throw cleanup-error)))
+    (finally
+      (reset! lifecycle nil))))
+
+(defn- run-with-cleanup [run work]
+  (let [primary-error (atom nil)]
+    (try
+      (work)
+      (catch Throwable error
+        (reset! primary-error error)
+        (throw error))
+      (finally
+        (cleanup-run! run primary-error)))))
+
 (defn start!
   [& [{:keys [font-path port width height bounds capture-dir max-frames auto-quit-ms]}]]
   (when-not font-path
@@ -64,14 +87,19 @@
                            :stop-server stop-server
                            :server-stopped? (atom false)
                            :close-requested? (atom false)}]
-                  (reset! lifecycle run)
-                  (assoc run :owner? true))))]
+                  (try
+                    (reset! lifecycle run)
+                    (assoc run :owner? true)
+                    (catch Throwable error
+                      (cleanup-run! run (atom error))
+                      (throw error))))))]
     (if-not (:owner? run)
       {:port (:port run)}
-      (do
-        (println (str "Demoscene nREPL: 127.0.0.1:" (:port run)
-                      " — connect your editor"))
-        (try
+      (run-with-cleanup
+        run
+        (fn []
+          (println (str "Demoscene nREPL: 127.0.0.1:" (:port run)
+                        " — connect your editor"))
           (ui/run #(app font-path)
                   :title "Slipstream demoscene"
                   :width (or width 960)
@@ -83,12 +111,7 @@
                                 (request-native-close!)))
                   :max-frames max-frames
                   :auto-quit-ms auto-quit-ms)
-          (finally
-            (try
-              (stop-server! run)
-              (finally
-                (reset! lifecycle nil)))))
-        {:port (:port run)}))))
+          {:port (:port run)})))))
 
 (def usage-text
   (str "Usage: slipstream.example.demoscene <font.ttf> [--port N] "

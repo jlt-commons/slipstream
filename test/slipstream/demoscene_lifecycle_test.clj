@@ -1,5 +1,5 @@
 (ns slipstream.demoscene-lifecycle-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [glimmer.core :as ui]
             [jolt.nrepl :as jolt-nrepl]
             [nrepl.core :as nrepl]
@@ -18,6 +18,16 @@
   (with-meta
     (fn [] (swap! events conj :stop))
     {:port port :port-file nil}))
+
+(defn- with-clean-lifecycle [test-fn]
+  (let [lifecycle (var-get (ns-resolve 'slipstream.example.demoscene 'lifecycle))]
+    (reset! lifecycle nil)
+    (try
+      (test-fn)
+      (finally
+        (reset! lifecycle nil)))))
+
+(use-fixtures :each with-clean-lifecycle)
 
 (deftest start-is-idempotent-starts-nrepl-first-and-has-unlimited-production-defaults
   (let [events (atom [])
@@ -73,27 +83,60 @@
     (is (false? @ui-started?))
     (is (nil? (demo/stop!)))))
 
-(deftest ui-failure-stops-nrepl-once-and-allows-a-clean-restart
+(deftest post-start-output-failure-cleans-up-and-allows-a-clean-restart
   (let [events (atom [])
         starts (atom 0)
-        fail-ui? (atom true)
-        failure (ex-info "injected UI startup failure" {:stage :ui})]
+        ui-runs (atom 0)
+        failure (ex-info "injected startup output failure" {:stage :output})]
     (with-redefs [jolt-nrepl/start
                   (fn [& _]
                     (swap! starts inc)
                     (fake-stop events 7888))
+                  ui/run (fn [& _] (swap! ui-runs inc))]
+      (let [actual (with-redefs [println (fn [& _] (throw failure))]
+                     (try
+                       (demo/start! {:font-path test-font})
+                       nil
+                       (catch Throwable error error)))]
+        (is (identical? failure actual)))
+      (is (= [:stop] @events))
+      (is (zero? @ui-runs))
+      (is (= {:port 7888} (demo/start! {:font-path test-font}))))
+    (is (= 2 @starts))
+    (is (= 1 @ui-runs))
+    (is (= [:stop :stop] @events))))
+
+(deftest ui-failure-stops-nrepl-once-and-allows-a-clean-restart
+  (let [events (atom [])
+        starts (atom 0)
+        fail-ui? (atom true)
+        fail-stop? (atom true)
+        failure (ex-info "injected UI startup failure" {:stage :ui})
+        cleanup-failure (ex-info "injected cleanup failure" {:stage :cleanup})]
+    (with-redefs [jolt-nrepl/start
+                  (fn [& _]
+                    (swap! starts inc)
+                    (with-meta
+                      (fn []
+                        (swap! events conj :stop)
+                        (when @fail-stop? (throw cleanup-failure)))
+                      {:port 7888 :port-file nil}))
                   ui/run
                   (fn [& _]
                     (when @fail-ui? (throw failure)))]
-      (let [actual (try
-                     (demo/start! {:font-path test-font})
-                     nil
-                     (catch Throwable error error))]
-        (is (identical? failure actual)))
+      (let [error-output (java.io.StringWriter.)
+            actual (binding [*err* error-output]
+                     (try
+                       (demo/start! {:font-path test-font})
+                       nil
+                       (catch Throwable error error)))]
+        (is (identical? failure actual))
+        (is (re-find #"injected cleanup failure" (str error-output))))
       (is (= [:stop] @events))
       (demo/stop!)
       (is (= [:stop] @events))
       (reset! fail-ui? false)
+      (reset! fail-stop? false)
       (is (= {:port 7888} (demo/start! {:font-path test-font}))))
     (is (= 2 @starts))
     (is (= [:stop :stop] @events))))
