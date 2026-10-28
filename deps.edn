@@ -6,7 +6,9 @@
                 :linux ["native/libslipstream.so"]}]
 
  :aliases {:test {:extra-paths ["test" "example"]
-                  :main-opts ["-m" "slipstream.test-runner"]}}
+                  :main-opts ["-m" "slipstream.test-runner"]}
+           :parity {:extra-paths ["test" "example"]
+                    :main-opts ["-m" "slipstream.parity-test"]}}
 
  :tasks {:requires ([babashka.fs :as fs])
          :init (def lib (str "native/libslipstream."
@@ -30,6 +32,8 @@
                                       "native/canvas.cpp"
                                       "native/freetype.cpp"
                                       "native/glfw_renderer.cpp"
+                                      "native/parity_oracle.cpp"
+                                      (str slughorn "/example/slughorn-example-glfw.cpp")
                                       (str slughorn "/slughorn/slughorn.cpp")
                                       (str slughorn "/slughorn/slughorn.hpp")
                                       (str slughorn "/slughorn/canvas.hpp")
@@ -51,4 +55,8 @@
 
          test {:doc "unit tests"
                :depends [native]
-               :task (jolt "-M:test")}}}
+               :task (jolt "-M:test")}
+
+         parity {:doc "compare native data, rendered frames, and example behavior"
+                 :depends [native]
+                 :task (jolt "-M:parity")}}}

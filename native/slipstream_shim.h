@@ -17,7 +17,7 @@ const char* ss_last_error(void) SS_NOEXCEPT;
 
 /* Returns an owned atlas handle, or null on failure. A successful handle must
  * eventually be passed to ss_atlas_destroy exactly once. */
-void* ss_atlas_new(uint32_t width) SS_NOEXCEPT;
+void* ss_atlas_new(uint32_t width, int curve_precision) SS_NOEXCEPT;
 
 /* Destroys an owned atlas handle and invalidates it for all further operations.
  * Returns zero on success and nonzero on failure. */

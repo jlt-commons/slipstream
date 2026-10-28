@@ -72,11 +72,15 @@
         layers))))
 
 (defn compile-scene [font-path text curve-precision]
-  (let [scene (core/compile (scene-data font-path text curve-precision))]
+  (let [normalized (core/normalize (scene-data font-path text curve-precision))
+        atlas (core/make-atlas (:options normalized))]
     (try
-      (assoc scene :layers (upstream-text-layers scene text))
+      (core/load-font! atlas font-path
+                       (mapv #(bit-and (int %) 0xff) (.getBytes text "UTF-8")) {})
+      (core/build! atlas)
+      (core/->Scene atlas normalized (upstream-text-layers atlas text) (atom false))
       (catch Throwable error
-        (core/destroy! scene)
+        (core/destroy! atlas)
         (throw error)))))
 
 (defn- exit [code]

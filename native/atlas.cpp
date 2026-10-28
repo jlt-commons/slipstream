@@ -1,11 +1,13 @@
 #include "slipstream_shim.h"
 #include "slipstream_internal.hpp"
 
+#include <memory>
+
 const char* ss_last_error(void) noexcept {
   return slipstream::last_error;
 }
 
-void* ss_atlas_new(uint32_t width) noexcept {
+void* ss_atlas_new(uint32_t width, int curve_precision) noexcept {
   ss_try(nullptr,
     if(width == 0) {
       throw std::invalid_argument("texture width must be greater than zero");
@@ -13,7 +15,14 @@ void* ss_atlas_new(uint32_t width) noexcept {
     if((width & (width - 1)) != 0) {
       throw std::invalid_argument("texture width must be a power of two");
     }
-    return new slughorn::Atlas(width);
+    if(curve_precision != 16 && curve_precision != 32) {
+      throw std::invalid_argument("curve precision must be 16 or 32");
+    }
+    auto atlas = std::make_unique<slughorn::Atlas>(width);
+    if(curve_precision == 16) {
+      atlas->setCurveTextureFormat(slughorn::Atlas::TextureData::Format::RGBA16F);
+    }
+    return atlas.release();
   );
 }
 

@@ -26,8 +26,9 @@
         (throw (ex-info "atlas is destroyed" {:op op})))
       (:handle atlas))))
 
-(defn make-atlas [& [{:keys [texture-width] :or {texture-width 512}}]]
-  (let [handle (f/atlas-new texture-width)]
+(defn make-atlas [& [{:keys [texture-width curve-precision]
+                      :or {texture-width 512 curve-precision 32}}]]
+  (let [handle (f/atlas-new texture-width curve-precision)]
     (when (or (nil? handle) (zero? handle))
       (native-failure :make-atlas))
     (->Atlas handle (atom false))))

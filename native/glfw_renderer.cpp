@@ -12,6 +12,7 @@
 #include <cstring>
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <iterator>
 #include <vector>
@@ -601,6 +602,36 @@ static void onScroll(GLFWwindow* win, double /*xoffset*/, double yoffset) {
 	if(view->distance > 1000000.0f) view->distance = 1000000.0f;
 }
 
+static void applyParityControls(int frame, GLFWwindow* window, ViewState* view) {
+	if(!view) return;
+	switch(frame) {
+		case 1:
+		case 2:
+			onKey(window, GLFW_KEY_P, 0, GLFW_PRESS, 0);
+			break;
+		case 3:
+			onMouseButton(window, GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS, 0);
+			view->lastCursorX = 100.0;
+			view->lastCursorY = 100.0;
+			onCursorPos(window, 130.0, 110.0);
+			onMouseButton(window, GLFW_MOUSE_BUTTON_LEFT, GLFW_RELEASE, 0);
+			break;
+		case 4:
+			onMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT, GLFW_PRESS, 0);
+			view->lastCursorX = 100.0;
+			view->lastCursorY = 100.0;
+			onCursorPos(window, 120.0, 115.0);
+			onMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT, GLFW_RELEASE, 0);
+			break;
+		case 5:
+			onScroll(window, 0.0, 1.0);
+			break;
+		case 6:
+			onKey(window, GLFW_KEY_R, 0, GLFW_PRESS, 0);
+			break;
+	}
+}
+
 // ============================================================================
 // main
 // ============================================================================
@@ -682,7 +713,8 @@ int ss_glfw_run(
 		glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 #ifdef __APPLE__
 		glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-		if(capturePath) glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
+		if(capturePath || std::getenv("SLIPSTREAM_PARITY_CAPTURE_DIR"))
+			glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_FALSE);
 #endif
 		resources.window = glfwCreateWindow(800, 600, title ? title : "slughorn", nullptr, nullptr);
 		if(!resources.window) throw std::runtime_error("glfwCreateWindow failed");
@@ -757,6 +789,8 @@ int ss_glfw_run(
 		int frameCount = 0;
 		while(!glfwWindowShouldClose(resources.window)) {
 			glfwPollEvents();
+			if(std::getenv("SLIPSTREAM_PARITY_CONTROLS"))
+				applyParityControls(frameCount, resources.window, &view);
 			int fbW, fbH;
 			glfwGetFramebufferSize(resources.window, &fbW, &fbH);
 			glViewport(0, 0, fbW, fbH);
@@ -795,6 +829,10 @@ int ss_glfw_run(
 			glUseProgram(0);
 
 			if(capturePath && frameCount == 0) captureFrame(capturePath, fbW, fbH);
+			if(const char* directory = std::getenv("SLIPSTREAM_PARITY_CAPTURE_DIR")) {
+				const auto path = std::filesystem::path(directory) / (std::to_string(frameCount) + ".ppm");
+				captureFrame(path.string().c_str(), fbW, fbH);
+			}
 			glfwSwapBuffers(resources.window);
 			++frameCount;
 			if(maxFrames > 0 && frameCount >= maxFrames)

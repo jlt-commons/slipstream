@@ -76,3 +76,23 @@ foreach(config IN ITEMS DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
     LIBRARY_OUTPUT_DIRECTORY_${config} "${CMAKE_CURRENT_SOURCE_DIR}"
     RUNTIME_OUTPUT_DIRECTORY_${config} "${CMAKE_CURRENT_SOURCE_DIR}")
 endforeach()
+
+add_executable(slipstream-parity-oracle
+  parity_oracle.cpp
+  "${SLUGHORN_HOME}/slughorn/slughorn.cpp")
+target_include_directories(slipstream-parity-oracle PRIVATE
+  "${SLUGHORN_HOME}"
+  "${NLOHMANN_JSON_INCLUDE_DIR}")
+target_link_libraries(slipstream-parity-oracle PRIVATE PkgConfig::FREETYPE glad glfw)
+target_compile_definitions(slipstream-parity-oracle PRIVATE GLAD_GLAPI_EXPORT)
+
+set_property(SOURCE "${SLUGHORN_HOME}/example/slughorn-example-glfw.cpp"
+  APPEND PROPERTY COMPILE_DEFINITIONS SLUGHORN_FREETYPE_IMPLEMENTATION)
+add_executable(slughorn-example-glfw
+  "${SLUGHORN_HOME}/example/slughorn-example-glfw.cpp"
+  "${SLUGHORN_HOME}/slughorn/slughorn.cpp")
+target_include_directories(slughorn-example-glfw PRIVATE
+  "${SLUGHORN_HOME}"
+  "${NLOHMANN_JSON_INCLUDE_DIR}")
+target_link_libraries(slughorn-example-glfw PRIVATE PkgConfig::FREETYPE glad glfw)
+target_compile_definitions(slughorn-example-glfw PRIVATE GLAD_GLAPI_EXPORT)
