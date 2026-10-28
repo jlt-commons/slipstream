@@ -2,6 +2,7 @@
   (:require [glimmer.core :as ui]
             [glimmer.ratom :as r]
             [jolt.nrepl :as nrepl]
+            [slipstream.example.demoscene-shader :as visuals]
             [slipstream.glimmer :as sg]
             [slipstream.glimmer-renderer :as renderer]))
 
@@ -9,31 +10,23 @@
   '[nrepl.middleware/default-middleware cider.nrepl/cider-middleware])
 
 (defonce state
-  (r/atom {:time 0.0
-           :transition 0.0
-           :mouse [0.5 0.5]
-           :density 1.0
-           :speed 1.0
-           :left false
-           :right false
-           :middle false
-           :space false
-           :r false
-           :vectors {}}))
+  (r/atom visuals/initial-state))
 
 (defonce ^:private lifecycle (atom nil))
 
-(defn app [font-path]
-  (let [{:keys [transition density speed]} @state]
-    [:group {}
-     [:shape {:path [[:rect 0 0 1 1]]
-              :fill [0.015 0.02 0.05 1]}]
-     [:text {:font font-path
-             :text (str "SLIPSTREAM  transition " transition
-                        "  density " density "  speed " speed)
-             :at [0.04 0.08 0]
-             :size 0.035
-             :color [0.7 0.9 1 1]}]]))
+(defn app
+  ([font-path] (app font-path (:aspect @state)))
+  ([font-path aspect]
+   (visuals/scene-for-state (assoc @state :font font-path :aspect aspect))))
+
+(defn- advance-from-native-input! [previous-frame]
+  (when-let [context (sg/current-context)]
+    (let [now (System/nanoTime)
+          dt (/ (- now @previous-frame) 1000000000.0)]
+      (reset! previous-frame now)
+      (let [input (renderer/input-snapshot context)
+            mouse (renderer/cursor->bounds context [0 1 0 1])]
+        (swap! state visuals/update-state dt (assoc input :mouse mouse))))))
 
 (defn- stop-server! [{:keys [server-stopped? stop-server]}]
   (when (compare-and-set! server-stopped? false true)
@@ -100,17 +93,25 @@
         (fn []
           (println (str "Demoscene nREPL: 127.0.0.1:" (:port run)
                         " — connect your editor"))
-          (ui/run #(app font-path)
-                  :title "Slipstream demoscene"
-                  :width (or width 960)
-                  :height (or height 640)
-                  :bounds bounds
-                  :capture-dir capture-dir
-                  :on-start (fn []
-                              (when @(:close-requested? run)
-                                (request-native-close!)))
-                  :max-frames max-frames
-                  :auto-quit-ms auto-quit-ms)
+          (let [width (or width 960)
+                height (or height 640)
+                aspect (if bounds
+                         (/ (- (nth bounds 1) (nth bounds 0))
+                            (- (nth bounds 3) (nth bounds 2)))
+                         (/ (double width) height))
+                previous-frame (atom (System/nanoTime))]
+            (ui/run #(app font-path aspect)
+                    :title "Slipstream demoscene"
+                    :width width
+                    :height height
+                    :bounds bounds
+                    :capture-dir capture-dir
+                    :on-start (fn []
+                                (when @(:close-requested? run)
+                                  (request-native-close!)))
+                    :after-render #(advance-from-native-input! previous-frame)
+                    :max-frames max-frames
+                    :auto-quit-ms auto-quit-ms))
           {:port (:port run)})))))
 
 (def usage-text
