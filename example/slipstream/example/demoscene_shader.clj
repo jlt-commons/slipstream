@@ -18,6 +18,11 @@
    :bounds [0 1.5 0 1]
    :nrepl-port nil
    :geometry-stage 0
+   :profile :showcase
+   :intensity 1
+   :sdf nil
+   :metrics true
+   :metrics-text nil
    :vectors {}})
 
 (def palette
@@ -116,7 +121,9 @@
 
 (defn update-state [state dt input]
   (if (:r input)
-    (merge initial-state (select-keys state [:aspect :bounds :nrepl-port :font]))
+    (merge initial-state
+           (select-keys state [:aspect :bounds :nrepl-port :font
+                               :profile :intensity :sdf :metrics :metrics-text]))
     (let [dt (max 0.0 (double dt))
           time (+ (:time state 0.0) dt)
           toggle (or (and (:space input) (not (:space state)))

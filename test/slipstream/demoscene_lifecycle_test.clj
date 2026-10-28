@@ -79,6 +79,9 @@
         custom-bounds [-2 4 3 7]]
     (with-redefs [jolt-nrepl/start (fn [& _] (fake-stop events 45678))
                   sg/current-context (constantly :native-context)
+                  renderer/frame-state (fn [context]
+                                         (is (= :native-context context))
+                                         {})
                   renderer/input-snapshot (fn [_] {})
                   renderer/cursor->bounds
                   (fn [_ bounds]
