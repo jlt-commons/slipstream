@@ -288,7 +288,8 @@
                            #{:baseline :cap-center :cap-top :x-center}
                            scene-path node :anchor)
        :mask (when (contains? opts :mask)
-               (integer-value (:mask opts) 0 255 scene-path node :mask))}
+               (integer-value (:mask opts) 0 255 scene-path node :mask))
+       :compatibility (get opts :compatibility false)}
       (select-keys (placement opts scene-path node) [:transform])
       {::scene-path scene-path ::source node})))
 
@@ -420,7 +421,11 @@
                        (range) children-data)
           codepoints (reduce (fn [result node]
                                (if (= :text (:tag node))
-                                 (update result (:font node) into (map int (:text node)))
+                                 (update result (:font node) into
+                                         (if (:compatibility node)
+                                           (map #(bit-and (int %) 0xff)
+                                                (.getBytes (:text node) "UTF-8"))
+                                           (map int (:text node))))
                                  result))
                              {} (mapcat descendants parsed))
           parsed (mapv (fn [node]
@@ -520,7 +525,8 @@
                                   :metrics (:metrics font)
                                   :align (:align node)
                                   :anchor (:anchor node)
-                                  :mask (or (:mask node) (:mask font))})]
+                                  :mask (or (:mask node) (:mask font))
+                                  :compatibility (:compatibility node)})]
     (mapv #(merge % (select-keys paint [:gradient-id :pattern-id])) layers)))
 
 (defn- compile-child [context node]

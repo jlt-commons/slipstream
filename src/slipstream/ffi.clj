@@ -134,3 +134,13 @@
 (ffi/defcfn canvas-set-mask "ss_canvas_set_mask" [:pointer :pointer] :int32)
 (ffi/defcfn canvas-mask-path "ss_canvas_mask_path"
   [:pointer :float :bool :pointer] :int32)
+
+(def layers-view-layout
+  (ffi/layout [:struct [[:data :pointer] [:count :uint64]]]))
+(ffi/defcfn glfw-run "ss_glfw_run"
+  [:pointer
+   [:by-value [:struct [[:data :pointer] [:count :uint64]]]]
+   :pointer :int32 :pointer :int32]
+  :int32 :blocking)
+(ffi/defcfn read-stdin-text "ss_read_stdin_text" [] :pointer :blocking)
+(ffi/defcfn free-stdin-text "ss_free_stdin_text" [:pointer] :void)

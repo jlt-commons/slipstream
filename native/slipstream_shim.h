@@ -230,6 +230,22 @@ int ss_canvas_finalize(void* canvas, const SSKey* key) SS_NOEXCEPT;
 int ss_canvas_set_mask(void* canvas, const SSMask* mask) SS_NOEXCEPT;
 int ss_canvas_mask_path(void* canvas, float range, bool invert, SSMask* out) SS_NOEXCEPT;
 
+typedef struct SSLayersView {
+  const SSLayer* data;
+  uint64_t count;
+} SSLayersView;
+
+/* The atlas and layer storage are borrowed for the duration of this blocking
+ * call. The atlas must be built and remain alive until the renderer exits. */
+int ss_glfw_run(
+  void* atlas, SSLayersView layers, const char* title, int curve_precision,
+  const char* capture_path, int max_frames) SS_NOEXCEPT;
+
+/* Returns null for a terminal, or an owned UTF-8 byte string for piped stdin.
+ * Free non-null results with ss_free_stdin_text. */
+char* ss_read_stdin_text(void) SS_NOEXCEPT;
+void ss_free_stdin_text(char* text) SS_NOEXCEPT;
+
 #ifdef __cplusplus
 }
 #endif

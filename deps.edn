@@ -1,11 +1,11 @@
-{:paths ["src"]
+{:paths ["src" "example"]
  :deps {}
 
  :jolt/native [{:name "slipstream"
                 :darwin ["native/libslipstream.dylib"]
                 :linux ["native/libslipstream.so"]}]
 
- :aliases {:test {:extra-paths ["test"]
+ :aliases {:test {:extra-paths ["test" "example"]
                   :main-opts ["-m" "slipstream.test-runner"]}}
 
  :tasks {:requires ([babashka.fs :as fs])
@@ -29,6 +29,7 @@
                                       "native/path.cpp"
                                       "native/canvas.cpp"
                                       "native/freetype.cpp"
+                                      "native/glfw_renderer.cpp"
                                       (str slughorn "/slughorn/slughorn.cpp")
                                       (str slughorn "/slughorn/slughorn.hpp")
                                       (str slughorn "/slughorn/canvas.hpp")

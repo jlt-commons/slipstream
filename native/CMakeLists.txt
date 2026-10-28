@@ -23,6 +23,26 @@ endif()
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FREETYPE REQUIRED IMPORTED_TARGET freetype2)
 
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+include(FetchContent)
+FetchContent_Declare(
+  glad
+  GIT_REPOSITORY https://github.com/Dav1dde/glad.git
+  GIT_TAG v0.1.36
+  GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(glad)
+
+FetchContent_Declare(
+  glfw
+  GIT_REPOSITORY https://github.com/glfw/glfw.git
+  GIT_TAG 3.4
+  GIT_SHALLOW TRUE)
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glfw)
+
 find_path(NLOHMANN_JSON_INCLUDE_DIR nlohmann/json.hpp
   PATHS "${SLUGHORN_HOME}/ext/json/include" /opt/homebrew/include /usr/local/include
   NO_DEFAULT_PATH)
@@ -37,12 +57,14 @@ add_library(slipstream SHARED
   path.cpp
   canvas.cpp
   freetype.cpp
+  glfw_renderer.cpp
   "${SLUGHORN_HOME}/slughorn/slughorn.cpp")
 target_include_directories(slipstream PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
   "${SLUGHORN_HOME}"
   "${NLOHMANN_JSON_INCLUDE_DIR}")
-target_link_libraries(slipstream PRIVATE PkgConfig::FREETYPE)
+target_link_libraries(slipstream PRIVATE PkgConfig::FREETYPE glad glfw)
+target_compile_definitions(slipstream PRIVATE GLAD_GLAPI_EXPORT)
 
 set_target_properties(slipstream PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"

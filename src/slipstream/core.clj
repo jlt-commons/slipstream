@@ -948,3 +948,12 @@
        ~@body
        (finally
          (destroy! ~scene)))))
+
+(defn call-with-native-layers
+  "Borrows a built scene's flattened layers as native storage for callback."
+  [scene callback]
+  (let [handle (live-handle scene :call-with-native-layers)
+        flattened (layers scene)]
+    (call-with-layers flattened
+      (fn [layer-p n]
+        (callback handle layer-p n)))))
