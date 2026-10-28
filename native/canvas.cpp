@@ -383,7 +383,20 @@ int64_t ss_atlas_add_gradient(
           geometry[0], geometry[1], matrix[0], matrix[1], matrix[2], matrix[3]);
         break;
     }
-    if(matrix) info.transform = matrix_from_c(matrix);
+    if(matrix) {
+      info.transform = matrix_from_c(matrix);
+      if(info.type == slughorn::GradientInfo::Type::AffineRadial) {
+        const float radiusSpan = geometry[3] - geometry[2];
+        if(radiusSpan <= 1e-6f)
+          throw std::invalid_argument("affine-radial outer radius must exceed inner radius");
+        const float inverse = 1.0f / radiusSpan;
+        info.transform.xx *= inverse;
+        info.transform.yx *= inverse;
+        info.transform.xy *= inverse;
+        info.transform.yy *= inverse;
+        info.innerRadius = geometry[2] * inverse;
+      }
+    }
     const uint32_t id = target->addGradient(info);
     if(id == 0) throw std::runtime_error("gradient registration failed");
     return static_cast<int64_t>(id);

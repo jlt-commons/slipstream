@@ -101,7 +101,11 @@
           affine (upload-paint context {:type :affine-radial :center [0.5 0.5]
                                         :inner-radius 0
                                         :transform [2 0 0 1 0.5 0.5]
-                                        :stops red-blue})]
+                                        :stops red-blue})
+          outer-affine (upload-paint context {:type :affine-radial :center [0.5 0.5]
+                                              :inner-radius 0 :outer-radius 0.5
+                                              :transform [2 0 0 1 0.5 0.5]
+                                              :stops red-blue})]
       (try
         (let [frame (capture context radial 1)]
           (check-pixel frame [32 32] [255 0 0 255])
@@ -114,10 +118,14 @@
         (let [frame (capture context affine 1)]
           (check-pixel frame [48 32] [128 0 128 255])
           (check-pixel frame [32 48] [191 0 64 255]))
+        (let [frame (capture context outer-affine 1)]
+          (check-pixel frame [48 32] [0 0 255 255])
+          (check-pixel frame [32 48] [128 0 128 255]))
         (finally
           (release-paint context radial)
           (release-paint context sweep)
-          (release-paint context affine))))))
+          (release-paint context affine)
+          (release-paint context outer-affine))))))
 
 (deftest gradient-transform-golden-frame
   (with-context [context]
@@ -189,6 +197,41 @@
                  (:paint-texture-uploads after-state))))
         (is (= (vec (:pixels before-b)) (vec (:pixels (capture context b 1)))))
         (check-pixel (capture context replacement 1) [32 32] [128 127 128 255])
+        (finally
+          (release-paint context replacement)
+          (release-paint context b))))))
+
+(deftest tile-changes-invalidate-only-dependent-paint-resources
+  (with-context [context]
+    (let [pattern (fn [tile-width]
+                    {:type :pattern :tile :tile
+                     :tile-path [[:rect 0 0 tile-width 1]]
+                     :cell [0 0 1 1] :transform [1 0 0 1 0 0]
+                     :repeat-x :repeat :repeat-y :repeat})
+          a (upload-paint context (pattern 0.25))
+          b (upload-paint context {:type :linear :from [0 0] :to [1 0]
+                                   :stops red-blue})
+          program (renderer/program! context :paint)
+          before-b (capture context b 1)
+          before-handle-b (:handle b)
+          before-paint-b (:paint b)
+          before-state (frame-state context)
+          replacement (upload-paint context (pattern 0.5))]
+      (try
+        (release-paint context a)
+        (let [after-state (frame-state context)]
+          (is (not= (:paint a) (:paint replacement)))
+          (is (= before-handle-b (:handle b)))
+          (is (= before-paint-b (:paint b)))
+          (is (= program (renderer/program! context :paint)))
+          (is (= (:shader-compilations before-state)
+                 (:shader-compilations after-state)))
+          (is (= (inc (:resource-uploads before-state))
+                 (:resource-uploads after-state)))
+          (is (= (:paint-texture-uploads before-state)
+                 (:paint-texture-uploads after-state))))
+        (is (= (vec (:pixels before-b)) (vec (:pixels (capture context b 1)))))
+        (check-pixel (capture context replacement 1) [24 32] [255 255 255 255])
         (finally
           (release-paint context replacement)
           (release-paint context b))))))
