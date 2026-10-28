@@ -26,14 +26,22 @@
 (defn- flat-color? [value]
   (and (vector? value) (= 4 (count value)) (every? number? value)))
 
+(defn- canonical-paint [paint]
+  (if (flat-color? paint) :flat-color paint))
+
 (defn geometry-key
   [node]
   (let [props (node-props node)
         native (into {} (remove (comp layer-only-prop? key) props))]
     (immutable
       (cond-> native
-        (flat-color? (:fill native)) (assoc :fill :flat-color)
-        (flat-color? (:paint native)) (assoc :paint :flat-color)))))
+        (:paints native) (update :paints
+                                 (fn [paints]
+                                   (into {} (map (fn [[id paint]]
+                                                   [id (canonical-paint paint)])
+                                                 paints))))
+        (contains? native :fill) (update :fill canonical-paint)
+        (contains? native :paint) (update :paint canonical-paint)))))
 
 (defn- write-path! [path commands]
   (doseq [command commands]
@@ -158,26 +166,26 @@
         new-codepoints (text-codepoints new-props)
         new-keys (mapv #(glyph-cache-key (:font new-props) % new-props)
                        new-codepoints)
-        acquired (atom [])]
-    (try
-      (let [[resources* remaining]
-            (reduce
-              (fn [[out pools] [cache-key codepoint]]
-                (if-let [resource (first (get pools cache-key))]
-                  [(conj out resource) (update pools cache-key rest)]
-                  (let [resource (compile-glyph (:font new-props) codepoint new-props)]
-                    (swap! acquired conj resource)
-                    [(conj out resource) pools])))
-              [[] pools] (mapv vector new-keys new-codepoints))
-            released (vec (mapcat val remaining))]
-        (swap! widget assoc :props new-props :resources resources*)
-        (doseq [resource released]
-          (resources/release! resource))
-        {:acquired @acquired :released released})
-      (catch Throwable error
-        (doseq [resource @acquired]
-          (resources/release! resource))
-        (throw error)))))
+        acquired (atom [])
+        [resources* remaining]
+        (try
+          (reduce
+            (fn [[out pools] [cache-key codepoint]]
+              (if-let [resource (first (get pools cache-key))]
+                [(conj out resource) (update pools cache-key rest)]
+                (let [resource (compile-glyph (:font new-props) codepoint new-props)]
+                  (swap! acquired conj resource)
+                  [(conj out resource) pools])))
+            [[] pools] (mapv vector new-keys new-codepoints))
+          (catch Throwable error
+            (doseq [resource @acquired]
+              (resources/release! resource))
+            (throw error)))
+        released (vec (mapcat val remaining))]
+    (swap! widget assoc :props new-props :resources resources*)
+    (doseq [resource released]
+      (resources/release! resource))
+    {:acquired @acquired :released released}))
 
 (defn- update-shape! [widget old-props new-props]
   (if (= (geometry-key old-props) (geometry-key new-props))

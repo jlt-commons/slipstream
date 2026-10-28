@@ -121,6 +121,20 @@
       (finally
         (resources/dispose-tree! node)))))
 
+(deftest named-flat-paint-color-updates-do-not-recompile-geometry
+  (let [old-props (assoc (shape-props) :fill :main :paints {:main [1 0 0 1]})
+        resource (compiler/compile-shape old-props)
+        node (widget :shape old-props resource)
+        new-props (assoc old-props :paints {:main [0 0 1 1]})]
+    (try
+      (let [result (compiler/update-node! node old-props new-props)]
+        (is (= [[] []] (changed-references result)))
+        (is (identical? resource (:resource @node)))
+        (is (= 1 @(:ref-count resource))))
+      (finally
+        (resources/dispose-tree! node)
+        (resources/release! resource)))))
+
 (deftest shape-replacement-preserves-unrelated-atlas-descriptors-and-bytes
   (let [old-a-props (shape-props)
         old-b-props (assoc (shape-props) :path [[:circle 0.5 0.5 0.4]])
@@ -163,6 +177,33 @@
         (resources/dispose-tree! node)
         (is @(:destroyed? (:atlas old-b)))
         (is @(:destroyed? (:atlas new-c))))
+      (finally
+        (resources/dispose-tree! node)
+        (resources/release! old-a)))))
+
+(deftest text-release-failure-does-not-release-installed-glyphs
+  (let [old-props {:font test-font :text "AB" :texture-width 128}
+        old-a (compiler/compile-glyph test-font 65 old-props)
+        old-b (compiler/compile-glyph test-font 66 old-props)
+        node (atom {:tag :text :props old-props :resource nil
+                    :resources [old-a old-b] :children [] :disposed? false})
+        new-props (assoc old-props :text "BC")
+        original-release resources/release!]
+    (try
+      (with-redefs [resources/release!
+                    (fn [resource]
+                      (if (identical? resource old-a)
+                        (throw (ex-info "injected glyph release failure" {}))
+                        (original-release resource)))]
+        (is (thrown-with-msg? Exception #"injected glyph release failure"
+                              (compiler/update-node! node old-props new-props)))
+        (let [new-c (second (:resources @node))]
+          (is (= [[:codepoint 66] [:codepoint 67]]
+                 (mapv #(get-in % [:root :key]) (:resources @node))))
+          (is (= new-props (:props @node)))
+          (is (= 1 @(:ref-count new-c)))
+          (is (true? (slug/built? (:atlas new-c))))
+          (is (= 1 @(:ref-count old-a)))))
       (finally
         (resources/dispose-tree! node)
         (resources/release! old-a)))))
