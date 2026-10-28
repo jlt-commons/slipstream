@@ -1,5 +1,6 @@
 (ns slipstream.example.glfw
   (:require [clojure.string :as str]
+            [slipstream.core :as core]
             [slipstream.glfw :as glfw]))
 
 (def usage-text
@@ -45,6 +46,39 @@
              :compatibility true}
       text]]))
 
+(defn upstream-text-layers [atlas text]
+  (let [font-size 1.0]
+    (loop [bytes (seq (.getBytes text "UTF-8"))
+           cursor-x 0.0
+           layers []]
+      (if-let [byte-value (first bytes)]
+        (let [key (bit-and (int byte-value) 0xff)
+              shape (core/shape atlas [:codepoint key])]
+          (cond
+            (nil? shape)
+            (recur (next bytes) (+ cursor-x (* 0.5 font-size)) layers)
+
+            (or (< (double (:width shape)) 1e-6)
+                (< (double (:height shape)) 1e-6))
+            (recur (next bytes) (+ cursor-x (* (:advance shape) font-size)) layers)
+
+            :else
+            (recur (next bytes)
+                   (+ cursor-x (* (:advance shape) font-size))
+                   (conj layers {:key [:codepoint key]
+                                 :color [1 1 1 1]
+                                 :transform [(/ cursor-x font-size) 0 0]
+                                 :scale font-size}))))
+        layers))))
+
+(defn compile-scene [font-path text curve-precision]
+  (let [scene (core/compile (scene-data font-path text curve-precision))]
+    (try
+      (assoc scene :layers (upstream-text-layers scene text))
+      (catch Throwable error
+        (core/destroy! scene)
+        (throw error)))))
+
 (defn- exit [code]
   (System/exit code))
 
@@ -57,7 +91,7 @@
         (exit 1))
       (try
         (let [text (select-text (glfw/read-stdin-text))]
-          (glfw/run! (scene-data font-path text curve-precision)
+          (glfw/run! (compile-scene font-path text curve-precision)
                      {:title "slughorn" :capture-path capture-path
                       :max-frames max-frames}))
         (exit 0)

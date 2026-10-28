@@ -3,13 +3,18 @@
             [jolt.ffi :as ffi]
             [slipstream.core :as slug]
             [slipstream.example.glfw :as example]
-            [slipstream.ffi :as f]))
+            [slipstream.ffi :as f]
+            [slipstream.glfw :as glfw]))
 
 (def ^:private expected-usage
   (str "Usage: slipstream.example.glfw <font.ttf> [--curve-precision 16|32]\n"
        "  --curve-precision: curve texture float precision (DEFAULT 32). 16 halves\n"
        "    curve-texture memory but is a real precision tradeoff -- can visibly\n"
        "    degrade shape edges under heavy zoom.\n"))
+
+(def ^:private test-font
+  (or (System/getenv "SLIPSTREAM_TEST_FONT")
+      (throw (ex-info "Set SLIPSTREAM_TEST_FONT for the GLFW example tests" {}))))
 
 (deftest example-arguments-match-the-upstream-command-contract
   (is (= {:font-path "/tmp/font.ttf" :curve-precision 32
@@ -30,11 +35,30 @@
   (is (= "kK" (example/select-text "kK\r\n"))))
 
 (deftest example-scene-preserves-upstream-byte-wise-text-layout
-  (let [font (or (System/getenv "SLIPSTREAM_TEST_FONT")
-                 (throw (ex-info "Set SLIPSTREAM_TEST_FONT for the example scene test" {})))]
-    (slug/with-scene [scene (example/scene-data font "Aé" 32)]
-      (is (= [[:codepoint 65] [:codepoint 195] [:codepoint 169]]
-             (mapv :key (:layers scene)))))))
+  (slug/with-scene [scene (example/compile-scene test-font "Aé" 32)]
+    (is (= [[:codepoint 65] [:codepoint 195] [:codepoint 169]]
+           (mapv :key (:layers scene))))))
+
+(deftest upstream-layout-skips-missing-and-zero-area-glyphs
+  (slug/with-atlas [atlas {:texture-width 256}]
+    (slug/load-font! atlas test-font [65 32] {})
+    (let [missing-result (example/upstream-text-layers atlas "BA")
+          space-advance (:advance (slug/shape atlas [:codepoint 32]))
+          space-result (example/upstream-text-layers atlas " A")]
+      (is (= [[:codepoint 65]] (mapv :key missing-result)))
+      (is (= [0.5 0 0] (:transform (first missing-result))))
+      (is (= [[:codepoint 65]] (mapv :key space-result)))
+      (is (= [space-advance 0 0] (:transform (first space-result)))))))
+
+(deftest zero-area-only-example-input-fails-before-opening-a-window
+  (slug/with-scene [scene (example/compile-scene test-font " " 32)]
+    (is (empty? (:layers scene)))
+    (let [error (try
+                  (glfw/run! scene {:max-frames 1})
+                  nil
+                  (catch Throwable error error))]
+      (is (some? error))
+      (is (re-find #"No geometry produced" (:native-error (ex-data error)))))))
 
 (deftest renderer-native-symbols-resolve-and-reject-a-null-atlas
   (ffi/with-layout [view f/layers-view-layout]
