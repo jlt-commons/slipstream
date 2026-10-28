@@ -106,6 +106,55 @@
 (defn- check! [value message]
   (when-not value (throw (ex-info message {}))))
 
+(def ^:private initial-frame-header (.getBytes "P6\n800 600\n255\n" "UTF-8"))
+(def ^:private initial-frame-payload-size (* 800 600 3))
+
+(defn- validate-initial-frame! [frame label]
+  (let [header-size (alength initial-frame-header)
+        expected-size (+ header-size initial-frame-payload-size)
+        actual-size (alength frame)]
+    (check! (= expected-size actual-size)
+            (str label " must have an exact 800x600 RGB payload; expected "
+                 expected-size " bytes, got " actual-size))
+    (check! (every? #(= (aget initial-frame-header %) (aget frame %))
+                    (range header-size))
+            (str label " must have the exact 800x600 PPM header"))
+    (let [red (aget frame header-size)
+          green (aget frame (inc header-size))
+          blue (aget frame (+ header-size 2))
+          nonblank (loop [offset (+ header-size 3)]
+                     (cond
+                       (= offset actual-size) false
+                       (or (not= red (aget frame offset))
+                           (not= green (aget frame (inc offset)))
+                           (not= blue (aget frame (+ offset 2)))) true
+                       :else (recur (+ offset 3))))]
+      (check! nonblank (str label " must contain nonblank rendered content"))))
+  nil)
+
+(deftest initial-frame-validation-rejects-invalid-captures
+  (let [header (.getBytes "P6\n800 600\n255\n" "UTF-8")
+        header-size (alength header)
+        payload-size (* 800 600 3)
+        valid (byte-array (+ header-size payload-size))
+        wrong-size (byte-array (+ header-size payload-size))
+        truncated (byte-array (dec (+ header-size payload-size)))
+        blank (byte-array (+ header-size payload-size))
+        uniform-gray (byte-array (+ header-size payload-size) (byte 38))]
+    (doseq [frame [valid wrong-size truncated blank uniform-gray]]
+      (System/arraycopy header 0 frame 0 header-size))
+    (System/arraycopy (.getBytes "P6\n799 600\n255\n" "UTF-8") 0 wrong-size 0 header-size)
+    (aset valid header-size (byte 1))
+    (is (nil? (validate-initial-frame! valid "valid frame")))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"800x600 PPM header"
+                          (validate-initial-frame! wrong-size "wrong size")))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"800x600 RGB payload"
+                          (validate-initial-frame! truncated "truncated")))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"nonblank"
+                          (validate-initial-frame! blank "blank")))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"nonblank"
+                          (validate-initial-frame! uniform-gray "uniform gray")))))
+
 (defn- check-file= [expected-path actual-path]
   (let [expected (Files/readAllBytes (nio-path expected-path))
         actual (Files/readAllBytes (nio-path actual-path))]
@@ -174,6 +223,10 @@
     (check! (.startsWith (:out jolt) controls-text) "Jolt controls output differs")
     (check! (= (:out cpp) (:out jolt)) "controls/OpenGL output differs")
     (check! (= (:err cpp) (:err jolt)) "GUI stderr differs")
+    (validate-initial-frame! (Files/readAllBytes (nio-path cpp-capture))
+                             "upstream initial frame")
+    (validate-initial-frame! (Files/readAllBytes (nio-path jolt-capture))
+                             "Jolt initial frame")
     (check-file= cpp-capture jolt-capture)
     (println (str "PASS initial 800x600 frame and clean exit: " label))))
 

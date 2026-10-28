@@ -25,6 +25,8 @@ namespace {
 int swapCount = 0;
 
 void captureFrame(const char* path, int width, int height) {
+	if(width != 800 || height != 600)
+		throw std::runtime_error("parity capture must be exactly 800x600");
 	std::vector<unsigned char> pixels(static_cast<size_t>(width) * height * 3);
 	glPixelStorei(GL_PACK_ALIGNMENT, 1);
 	glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
