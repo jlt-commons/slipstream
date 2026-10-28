@@ -2,6 +2,8 @@
 
 Slipstream is a data-oriented Jolt wrapper for [Slughorn](https://github.com/AlphaPixel/slughorn). It provides a declarative scene compiler, the reference GLFW renderer, and an incremental [Glimmer](https://github.com/jolt-lang/glimmer) backend with gradients, patterns, masks, compositing, SDF/MSDF, and custom shader effects.
 
+See the [complete API documentation](docs/README.md) for every primitive, option, lifecycle rule, and example.
+
 ## Requirements and dependency setup
 
 - Jolt 0.8.23 or a compatible newer release.
@@ -53,7 +55,7 @@ Run the reference and reactive examples:
 
 ```sh
 jolt -m slipstream.example.glfw "$SLIPSTREAM_TEST_FONT"
-jolt -m slipstream.example.reactive "$SLIPSTREAM_TEST_FONT" --auto-quit-ms 2000
+jolt -m slipstream.example.reactive "$SLIPSTREAM_TEST_FONT" --auto-quit-ms 10000
 ```
 
 The reactive example's timed mode performs its golden/smoke checkpoint sequence. Add `--capture-dir native/build/reactive-captures` to write inspection images. GUI checks require a working display/OpenGL context; dependency resolution or compilation alone is not visual verification.
