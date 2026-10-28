@@ -2,7 +2,14 @@
  :deps {io.github.jolt-lang/glimmer
         {:git/url "https://github.com/jolt-lang/glimmer.git"
          :git/tag "v0.1.7"
-         :git/sha "22350c4d047b05359a16b756b20f38ecb391a63b"}}
+         :git/sha "22350c4d047b05359a16b756b20f38ecb391a63b"}
+        jolt-lang/nrepl
+        {:git/url "https://github.com/jolt-lang/nrepl"
+         :git/tag "v0.4.0"
+         :git/sha "16558b920864e5302a5c1433a78f977bbb64a9d1"}}
+
+ :nrepl/middleware [nrepl.middleware/default-middleware
+                    cider.nrepl/cider-middleware]
 
  :jolt/native [{:name "slipstream"
                 :darwin ["native/libslipstream.dylib"]
