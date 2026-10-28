@@ -18,6 +18,8 @@ const char* ss_last_error(void) SS_NOEXCEPT;
 /* Returns an owned atlas handle, or null on failure. A successful handle must
  * eventually be passed to ss_atlas_destroy exactly once. */
 void* ss_atlas_new(uint32_t width, int curve_precision) SS_NOEXCEPT;
+/* type: 0 = single-channel SDF, 1 = three-channel MSDF. Must precede build. */
+int ss_atlas_set_sdf(void* atlas, uint32_t type) SS_NOEXCEPT;
 
 /* Destroys an owned atlas handle and invalidates it for all further operations.
  * Returns zero on success and nonzero on failure. */
@@ -115,7 +117,7 @@ int ss_atlas_get_composite_layers(
   void* atlas, const SSKey* key, SSLayer* layers, uint64_t capacity,
   uint64_t* count) SS_NOEXCEPT;
 
-/* kind: 0 = curve, 1 = band. Descriptor bytes remain borrowed from the atlas. */
+/* kind: 0 = curve, 1 = band, 2 = SDF/MSDF. Descriptor bytes remain borrowed. */
 int ss_atlas_texture(void* atlas, uint32_t kind, SSTextureDescriptor* out) SS_NOEXCEPT;
 
 int ss_shape_quad(
@@ -243,14 +245,23 @@ typedef struct SSGLContextOptions {
   uint8_t has_bounds, visible;
 } SSGLContextOptions;
 
+typedef struct SSGLUniform {
+  const char* name;
+  uint32_t type;
+  uint32_t components;
+  float values[16];
+} SSGLUniform;
+
 typedef struct SSGLDrawCommand {
   void* handle;
   void* paint;
+  void* effect;
   SSTransform transform;
   SSColor color;
   float scale;
   uint32_t effect_id;
   float effect_param;
+  float bleed;
   uint8_t visible;
   uint8_t kind; /* 0 = draw, 1 = begin-group, 2 = end-group */
   uint8_t draw_mode;
@@ -276,6 +287,10 @@ int ss_gl_context_destroy(void* context) SS_NOEXCEPT;
 int ss_gl_poll(void* context) SS_NOEXCEPT;
 bool ss_gl_should_close(void* context) SS_NOEXCEPT;
 void* ss_gl_program(void* context, const char* shader_key) SS_NOEXCEPT;
+void* ss_gl_effect_program(
+  void* context, const char* program_key, const char* effect_key,
+  const char* declarations, const char* vertex_hook, const char* fragment_hook,
+  uint8_t requires_sdf, const SSGLUniform* uniforms, uint64_t uniform_count) SS_NOEXCEPT;
 void* ss_gl_upload(void* context, void* atlas, const SSLayer* root) SS_NOEXCEPT;
 void* ss_gl_paint_texture(void* context, void* resource) SS_NOEXCEPT;
 int ss_gl_release(void* context, void* handle) SS_NOEXCEPT;

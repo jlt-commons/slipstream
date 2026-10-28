@@ -4,7 +4,7 @@
 
 (def ^:private layer-only-keys
   #{:id :key :tag :children :at :transform :color :visible :visibility :opacity
-    :effect-id :effect-param :gradient-id :pattern-id :bleed :draw-mode :blend-mode})
+    :effect :effect-id :effect-param :gradient-id :pattern-id :bleed :draw-mode :blend-mode})
 
 (defn- layer-only-prop? [k]
   (or (contains? layer-only-keys k)
@@ -88,7 +88,7 @@
   (throw error))
 
 (defn- build-shape [node cache-key]
-  (let [atlas (core/make-atlas (select-keys node [:texture-width :curve-precision]))]
+  (let [atlas (core/make-atlas (select-keys node [:texture-width :curve-precision :sdf-type]))]
     (try
       (let [root (core/with-path [path]
                    (write-path! path (shape-commands node))

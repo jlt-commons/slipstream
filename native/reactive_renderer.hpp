@@ -4,6 +4,7 @@
 #include <GLFW/glfw3.h>
 
 #include <array>
+#include <string>
 
 #include "slughorn/slughorn.hpp"
 
@@ -30,6 +31,9 @@ struct PaintData {
 
 const char* paint_vertex_source();
 const char* paint_fragment_source();
+std::string effect_vertex_source(const std::string& declarations, const std::string& hook);
+std::string effect_fragment_source(const std::string& declarations, const std::string& hook,
+                                   bool requires_sdf);
 PaintData build_paint_data(const slughorn::Atlas& atlas,
                            uint32_t gradient_id, uint32_t pattern_id);
 GLuint compile_shader(GLenum type, const char* source);

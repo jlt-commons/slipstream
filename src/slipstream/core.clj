@@ -26,12 +26,24 @@
         (throw (ex-info "atlas is destroyed" {:op op})))
       (:handle atlas))))
 
-(defn make-atlas [& [{:keys [texture-width curve-precision]
+(defn make-atlas [& [{:keys [texture-width curve-precision sdf-type]
                       :or {texture-width 512 curve-precision 32}}]]
+  (when (and sdf-type (not (contains? #{:sdf :msdf 0 1} sdf-type)))
+    (throw (ex-info ":sdf-type must be :sdf or :msdf"
+                    {:scene-path [:sdf-type] :sdf-type sdf-type})))
   (let [handle (f/atlas-new texture-width curve-precision)]
     (when (or (nil? handle) (zero? handle))
       (native-failure :make-atlas))
-    (->Atlas handle (atom false))))
+    (let [atlas (->Atlas handle (atom false))]
+      (try
+        (when sdf-type
+          (let [type-id (if (contains? #{:sdf 0} sdf-type) 0 1)]
+            (when-not (zero? (f/atlas-set-sdf handle type-id))
+              (native-failure :make-atlas))))
+        atlas
+        (catch Throwable error
+          (f/atlas-destroy handle)
+          (throw error))))))
 
 (defn destroy! [resource]
   (if (instance? Scene resource)
@@ -360,7 +372,7 @@
   :bytes is a borrowed pointer valid only while the atlas remains alive."
   [atlas kind & [{:keys [copy?] :or {copy? true}}]]
   (let [handle (live-handle atlas :texture)
-        kind-id (enum-value kind {:curve 0 :band 1} :texture-kind)]
+        kind-id (enum-value kind {:curve 0 :band 1 :sdf 2} :texture-kind)]
     (ffi/with-layout [out f/texture-layout]
       (when-not (zero? (f/atlas-texture handle kind-id out))
         (native-failure :texture))

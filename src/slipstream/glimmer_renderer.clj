@@ -6,10 +6,12 @@
 
 (defrecord GLContext [handle options destroyed? cache work-queue running?])
 
-(defn- native-failure [op]
-  (let [message (or (f/last-error) "unknown native error")]
-    (throw (ex-info (str (name op) " failed: " message)
-                    {:op op :native-error message}))))
+(defn- native-failure
+  ([op] (native-failure op {}))
+  ([op data]
+   (let [message (or (f/last-error) "unknown native error")]
+     (throw (ex-info (str (name op) " failed: " message)
+                     (merge {:op op :native-error message} data))))))
 
 (defn- context-handle [context op]
   (when-not (instance? GLContext context)
@@ -138,11 +140,13 @@
       (throw (ex-info "group mask must be a map or nil" {:command command})))
     {:handle (if begin? (get command :mask-handle 0) (get command :handle 0))
      :paint (if (or begin? end?) 0 (get command :paint 0))
+     :effect (if (or begin? end?) 0 (get command :effect 0))
      :transform (mapv double (into (vec transform) (repeat (- 3 (count transform)) 0)))
      :color (mapv double color)
      :scale (double (get command :scale 1))
      :effect-id (get command :effect-id 0)
      :effect-param (double (get command :effect-param 0))
+     :bleed (double (get command :bleed 0))
      :visible (if (false? (:visible command)) 0 1)
      :kind (cond begin? 1 end? 2 :else 0)
      :draw-mode (enum-value (get command :draw-mode :visible) draw-modes :draw-mode)
@@ -156,7 +160,7 @@
 
 (defn- validate-paint! [context index command]
   (when (zero? (:kind command))
-    (when-not (zero? (:effect-id command))
+    (when (and (not (zero? (:effect-id command))) (zero? (:effect command)))
       (throw (ex-info "effect ID requires a custom effect program"
                       {:op :render! :scene-path [index :effect-id]
                        :effect-id (:effect-id command)})))
@@ -179,6 +183,7 @@
         (let [p (+ command-p (* i size))]
           (ffi/write-field p f/gl-draw-command-layout :handle (:handle command))
           (ffi/write-field p f/gl-draw-command-layout :paint (:paint command))
+          (ffi/write-field p f/gl-draw-command-layout :effect (:effect command))
           (doseq [[field value] (map vector [:x :y :z] (:transform command))]
             (ffi/write-field p f/gl-draw-command-layout [:transform field] value))
           (doseq [[field value] (map vector [:r :g :b :a] (:color command))]
@@ -186,6 +191,7 @@
           (ffi/write-field p f/gl-draw-command-layout :scale (:scale command))
           (ffi/write-field p f/gl-draw-command-layout :effect-id (:effect-id command))
           (ffi/write-field p f/gl-draw-command-layout :effect-param (:effect-param command))
+          (ffi/write-field p f/gl-draw-command-layout :bleed (:bleed command))
           (ffi/write-field p f/gl-draw-command-layout :visible (:visible command))
           (ffi/write-field p f/gl-draw-command-layout :kind (:kind command))
           (ffi/write-field p f/gl-draw-command-layout :draw-mode (:draw-mode command))
@@ -196,7 +202,11 @@
             (ffi/write-field p f/gl-draw-command-layout [:mask-params i]
                              (nth (:mask-params command) i)))))
       (when-not (zero? (f/gl-render handle command-p (count commands)))
-        (native-failure :render!))))
+        (let [effect-index (or (first (keep-indexed (fn [i command]
+                                                     (when-not (zero? (:effect command)) i))
+                                                   commands))
+                               0)]
+          (native-failure :render! {:scene-path [effect-index :effect]})))))
   nil)
 
 (defn poll! [context]
@@ -223,21 +233,17 @@
   nil)
 
 (defn- drain-scheduled! [context]
-  (loop []
-    (let [work (atom nil)]
-      (swap! (:work-queue context)
-             (fn [works]
-               (when (seq works) (reset! work (first works)))
-               (if (seq works) (subvec works 1) works)))
-      (when @work
-        (@work)
-        (recur)))))
+  (let [works @(:work-queue context)]
+    (reset! (:work-queue context) [])
+    (doseq [work works]
+      (work))))
 
-(defn run-loop! [context {:keys [draw-tree max-frames auto-quit-ms]
+(defn run-loop! [context {:keys [draw-tree max-frames auto-quit-ms on-start after-render]
                           :or {draw-tree []}}]
   (let [started (System/currentTimeMillis)]
     (reset! (:running? context) true)
     (try
+      (when on-start (on-start))
       (loop [frames 0]
         (if (or (and max-frames (>= frames max-frames))
                 (and auto-quit-ms (>= (- (System/currentTimeMillis) started) auto-quit-ms)))
@@ -249,6 +255,7 @@
               (do
                 (drain-scheduled! context)
                 (render! context (if (fn? draw-tree) (draw-tree) draw-tree))
+                (when after-render (after-render))
                 (swap-buffers! context)
                 (recur (inc frames)))))))
       (finally

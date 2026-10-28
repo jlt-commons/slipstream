@@ -320,6 +320,23 @@
       (renderer/schedule! context #(reset! post-disposal true))
       (is (false? @post-disposal)))))
 
+(deftest nested-scheduled-work-runs-on-the-next-frame
+  (with-fake-native [_native (fake-native)]
+    (let [context (renderer/create-context {})
+          events (atom [])]
+      (renderer/run-loop! context
+        {:max-frames 2
+         :on-start #(renderer/schedule! context
+                      (fn []
+                        (swap! events conj :first)
+                        (renderer/schedule! context #(swap! events conj :second))))
+         :draw-tree (fn []
+                      (swap! events conj :frame)
+                      [])
+         :after-render #(swap! events conj :after-render)})
+      (is (= [:first :frame :after-render :second :frame :after-render] @events))
+      (renderer/destroy! context))))
+
 (deftest lifecycle-unmounts-and-disposes-before-context-destruction
   (let [calls (atom [])
         factory {:create! (fn [_ _ _]

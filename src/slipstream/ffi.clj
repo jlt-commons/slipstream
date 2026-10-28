@@ -3,6 +3,7 @@
 
 (ffi/defcfn last-error "ss_last_error" [] :string)
 (ffi/defcfn atlas-new "ss_atlas_new" [:uint32 :int32] :pointer)
+(ffi/defcfn atlas-set-sdf "ss_atlas_set_sdf" [:pointer :uint32] :int32)
 (ffi/defcfn atlas-destroy "ss_atlas_destroy" [:pointer] :int32)
 (ffi/defcfn atlas-build "ss_atlas_build" [:pointer] :int32)
 (ffi/defcfn atlas-built? "ss_atlas_is_built" [:pointer] :bool)
@@ -143,13 +144,17 @@
                         [:bounds [:array :float 4]]
                         [:has-bounds :uint8] [:visible :uint8]]]))
 (def gl-draw-command-layout
-  (ffi/layout [:struct [[:handle :pointer] [:paint :pointer]
+  (ffi/layout [:struct [[:handle :pointer] [:paint :pointer] [:effect :pointer]
                         [:transform [:struct [[:x :float] [:y :float] [:z :float]]]]
                         [:color [:struct [[:r :float] [:g :float] [:b :float] [:a :float]]]]
                         [:scale :float] [:effect-id :uint32] [:effect-param :float]
+                        [:bleed :float]
                         [:visible :uint8] [:kind :uint8] [:draw-mode :uint8]
                         [:blend-mode :uint8] [:mask-type :uint8] [:mask-invert :uint8]
                         [:reserved [:array :uint8 2]] [:mask-params [:array :float 6]]]]))
+(def gl-uniform-layout
+  (ffi/layout [:struct [[:name :pointer] [:type :uint32] [:components :uint32]
+                        [:values [:array :float 16]]]]))
 (def gl-frame-state-layout
   (ffi/layout [:struct [[:viewport [:array :int32 4]]
                         [:framebuffer-binding :int32]
@@ -165,6 +170,8 @@
 (ffi/defcfn gl-poll "ss_gl_poll" [:pointer] :int32)
 (ffi/defcfn gl-should-close "ss_gl_should_close" [:pointer] :bool)
 (ffi/defcfn gl-program "ss_gl_program" [:pointer :string] :pointer)
+(ffi/defcfn gl-effect-program "ss_gl_effect_program"
+  [:pointer :pointer :pointer :pointer :pointer :pointer :uint8 :pointer :uint64] :pointer)
 (ffi/defcfn gl-upload "ss_gl_upload" [:pointer :pointer :pointer] :pointer)
 (ffi/defcfn gl-paint-texture "ss_gl_paint_texture" [:pointer :pointer] :pointer)
 (ffi/defcfn gl-release "ss_gl_release" [:pointer :pointer] :int32)

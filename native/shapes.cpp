@@ -224,6 +224,7 @@ int ss_atlas_texture(void* atlas, uint32_t kind, SSTextureDescriptor* out) noexc
     switch(kind) {
       case 0: *out = texture_to_c(source->getCurveTextureData()); return 0;
       case 1: *out = texture_to_c(source->getBandTextureData()); return 0;
+      case 2: *out = texture_to_c(source->getSDF().texture); return 0;
       default: throw std::invalid_argument("unknown texture kind");
     }
   );

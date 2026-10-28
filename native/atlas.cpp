@@ -26,6 +26,17 @@ void* ss_atlas_new(uint32_t width, int curve_precision) noexcept {
   );
 }
 
+int ss_atlas_set_sdf(void* atlas, uint32_t type) noexcept {
+  ss_try(-1,
+    auto* value = slipstream::require_atlas(atlas);
+    if(type > 1) throw std::invalid_argument("SDF type must be 0 (SDF) or 1 (MSDF)");
+    auto config = value->getSDF().config;
+    config.type = type == 0 ? slughorn::Atlas::SDF::Type::SDF : slughorn::Atlas::SDF::Type::MSDF;
+    value->setSDF(config);
+    return 0;
+  );
+}
+
 int ss_atlas_destroy(void* atlas) noexcept {
   ss_try(-1,
     delete slipstream::require_atlas(atlas);

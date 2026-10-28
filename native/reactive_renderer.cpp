@@ -11,6 +11,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -62,9 +63,32 @@ struct GLProgram {
   GLuint id = 0;
 };
 
+struct NativeUniform {
+  std::string name;
+  uint32_t type = 0;
+  uint32_t components = 0;
+  std::array<float, 16> values{};
+};
+
+struct GLEffect {
+  GLContext* owner = nullptr;
+  GLProgram* program = nullptr;
+  bool requires_sdf = false;
+  std::vector<NativeUniform> uniforms;
+};
+
+void destroy_program(GLProgram& program) {
+  if(program.id) glDeleteProgram(program.id);
+  if(program.vertex) glDeleteShader(program.vertex);
+  if(program.fragment) glDeleteShader(program.fragment);
+  program = {};
+}
+
 struct GLContext {
   GLFWwindow* window = nullptr;
   GLProgram paint_program;
+  std::unordered_map<std::string, std::unique_ptr<GLProgram>> effect_programs;
+  std::unordered_map<std::string, std::unique_ptr<GLEffect>> effects;
   std::unique_ptr<slipstream::reactive::Compositor> compositor;
   GLuint dummy_gradient = 0;
   GLuint test_fbo = 0;
@@ -80,10 +104,11 @@ struct GLContext {
   ~GLContext() {
     if(window) glfwMakeContextCurrent(window);
     for(auto* resource : resources) delete resource;
+    effects.clear();
+    for(auto& [key, program] : effect_programs) destroy_program(*program);
+    effect_programs.clear();
     compositor.reset();
-    if(paint_program.id) glDeleteProgram(paint_program.id);
-    if(paint_program.vertex) glDeleteShader(paint_program.vertex);
-    if(paint_program.fragment) glDeleteShader(paint_program.fragment);
+    destroy_program(paint_program);
     if(dummy_gradient) glDeleteTextures(1, &dummy_gradient);
     if(test_fbo) glDeleteFramebuffers(1, &test_fbo);
     if(test_texture) glDeleteTextures(1, &test_texture);
@@ -95,6 +120,7 @@ std::mutex registry_mutex;
 std::unordered_set<GLContext*> contexts;
 std::unordered_set<GLResource*> resources;
 std::unordered_set<GLPaint*> paints;
+std::unordered_set<GLEffect*> effects;
 size_t glfw_users = 0;
 
 void glfw_error(int code, const char* message) {
@@ -134,11 +160,25 @@ GLPaint* require_paint(GLContext* context, void* handle) {
   return paint;
 }
 
+GLEffect* require_effect(GLContext* context, void* handle) {
+  if(!handle) throw std::invalid_argument("effect reference is null");
+  auto* effect = static_cast<GLEffect*>(handle);
+  std::lock_guard lock(registry_mutex);
+  if(!effects.contains(effect)) throw std::invalid_argument("effect reference is released or invalid");
+  if(effect->owner != context)
+    throw std::invalid_argument("effect reference belongs to a different GL context");
+  return effect;
+}
+
 void destroy_context(GLContext* context) {
   for(auto* resource : context->resources) {
     std::lock_guard lock(registry_mutex);
     resources.erase(resource);
     if(resource->paint) paints.erase(resource->paint);
+  }
+  for(const auto& [key, effect] : context->effects) {
+    std::lock_guard lock(registry_mutex);
+    effects.erase(effect.get());
   }
   delete context;
   release_glfw();
@@ -203,8 +243,12 @@ void validate_commands(GLContext* context, const SSGLDrawCommand* commands, uint
     }
     auto* resource = require_resource(context, command.handle);
     if(command.draw_mode > 3) throw std::invalid_argument("unknown draw mode");
-    if(command.effect_id != 0)
+    if(command.bleed < 0.0f) throw std::invalid_argument("draw bleed must be nonnegative");
+    auto* effect = command.effect ? require_effect(context, command.effect) : nullptr;
+    if(command.effect_id != 0 && !effect)
       throw std::invalid_argument("custom effects require an effect program, not the paint program");
+    if(effect && effect->requires_sdf && !resource->sdf)
+      throw std::invalid_argument("effect requires SDF data, but the resource has no baked tile");
     if(resource->paint && !command.paint)
       throw std::invalid_argument("draw command is missing its advanced paint reference");
     if(!resource->paint && command.paint)
@@ -213,6 +257,49 @@ void validate_commands(GLContext* context, const SSGLDrawCommand* commands, uint
       throw std::invalid_argument("draw command paint reference belongs to another resource");
   }
   if(depth != 0) throw std::invalid_argument("begin-group has no matching end-group");
+}
+
+void apply_effect_uniforms(GLuint program, const GLEffect* effect) {
+  for(const auto& uniform : effect->uniforms) {
+    const GLint location = glGetUniformLocation(program, uniform.name.c_str());
+    if(location < 0) continue;
+    const float* v = uniform.values.data();
+    switch(uniform.type) {
+      case 0: glUniform1fv(location, 1, v); break;
+      case 1: glUniform2fv(location, 1, v); break;
+      case 2: glUniform3fv(location, 1, v); break;
+      case 3: glUniform4fv(location, 1, v); break;
+      case 4: case 12: {
+        std::array<int32_t, 16> values{};
+        for(uint32_t i = 0; i < uniform.components; ++i) values[i] = static_cast<int32_t>(v[i]);
+        glUniform1iv(location, 1, values.data());
+        break;
+      }
+      case 5: case 13: case 6: case 14: case 7: case 15: {
+        std::array<int32_t, 16> values{};
+        for(uint32_t i = 0; i < uniform.components; ++i) values[i] = static_cast<int32_t>(v[i]);
+        if(uniform.components == 2) glUniform2iv(location, 1, values.data());
+        else if(uniform.components == 3) glUniform3iv(location, 1, values.data());
+        else glUniform4iv(location, 1, values.data());
+        break;
+      }
+      case 8: {
+        glUniform1ui(location, static_cast<uint32_t>(v[0]));
+        break;
+      }
+      case 9: case 10: case 11: {
+        std::array<uint32_t, 16> values{};
+        for(uint32_t i = 0; i < uniform.components; ++i) values[i] = static_cast<uint32_t>(v[i]);
+        if(uniform.components == 2) glUniform2uiv(location, 1, values.data());
+        else if(uniform.components == 3) glUniform3uiv(location, 1, values.data());
+        else glUniform4uiv(location, 1, values.data());
+        break;
+      }
+      case 16: glUniformMatrix3fv(location, 1, GL_FALSE, v); break;
+      case 17: glUniformMatrix4fv(location, 1, GL_FALSE, v); break;
+      default: throw std::invalid_argument("unknown effect uniform type");
+    }
+  }
 }
 
 }
@@ -380,6 +467,72 @@ void* ss_gl_program(void* handle, const char* shader_key) noexcept {
   );
 }
 
+void* ss_gl_effect_program(
+  void* handle, const char* program_key, const char* effect_key,
+  const char* declarations, const char* vertex_hook, const char* fragment_hook,
+  uint8_t requires_sdf, const SSGLUniform* uniforms, uint64_t uniform_count) noexcept {
+  ss_try(nullptr,
+    auto* context = require_context(handle);
+    if(!program_key || !effect_key || !declarations || !vertex_hook || !fragment_hook)
+      throw std::invalid_argument("effect source and cache keys must be non-null");
+    if(uniform_count > 0 && !uniforms) throw std::invalid_argument("effect uniforms are null");
+    if(auto found = context->effects.find(effect_key); found != context->effects.end())
+      return found->second.get();
+    glfwMakeContextCurrent(context->window);
+    auto program = context->effect_programs.find(program_key);
+    if(program == context->effect_programs.end()) {
+      auto candidate = std::make_unique<GLProgram>();
+      try {
+        const std::string vertex_source = slipstream::reactive::effect_vertex_source(
+          declarations, vertex_hook);
+        const std::string fragment_source = slipstream::reactive::effect_fragment_source(
+          declarations, fragment_hook, requires_sdf != 0);
+        candidate->vertex = slipstream::reactive::compile_shader(
+          GL_VERTEX_SHADER, vertex_source.c_str());
+        ++context->shader_compilations;
+        candidate->fragment = slipstream::reactive::compile_shader(
+          GL_FRAGMENT_SHADER, fragment_source.c_str());
+        ++context->shader_compilations;
+        candidate->id = slipstream::reactive::link_program(candidate->vertex, candidate->fragment);
+      } catch(...) {
+        destroy_program(*candidate);
+        throw;
+      }
+      program = context->effect_programs.emplace(program_key, std::move(candidate)).first;
+      glUseProgram(program->second->id);
+      glUniform1i(glGetUniformLocation(program->second->id, "u_curveTexture"), 0);
+      glUniform1i(glGetUniformLocation(program->second->id, "u_bandTexture"), 1);
+      glUniform1i(glGetUniformLocation(program->second->id, "u_gradientTexture"), 2);
+      glUniform1i(glGetUniformLocation(program->second->id, "u_sdfTexture"), 3);
+    }
+    auto effect = std::make_unique<GLEffect>();
+    effect->owner = context;
+    effect->program = program->second.get();
+    effect->requires_sdf = requires_sdf != 0;
+    static constexpr uint32_t component_counts[] = {1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4,
+                                                     1, 2, 3, 4, 9, 16};
+    for(uint64_t i = 0; i < uniform_count; ++i) {
+      const auto& source = uniforms[i];
+      if(!source.name || source.type >= std::size(component_counts) ||
+         source.components != component_counts[source.type])
+        throw std::invalid_argument("invalid native effect uniform interface");
+      NativeUniform target;
+      target.name = source.name;
+      target.type = source.type;
+      target.components = source.components;
+      std::copy(source.values, source.values + source.components, target.values.begin());
+      effect->uniforms.push_back(std::move(target));
+    }
+    auto* result = effect.get();
+    context->effects.emplace(effect_key, std::move(effect));
+    {
+      std::lock_guard lock(registry_mutex);
+      effects.insert(result);
+    }
+    return result;
+  );
+}
+
 void* ss_gl_upload(void* handle, void* atlasHandle, const SSLayer* root) noexcept {
   ss_try(nullptr,
     auto* context = require_context(handle);
@@ -543,10 +696,11 @@ int ss_gl_render(void* handle, const SSGLDrawCommand* commands, uint64_t count) 
         }
         if(!command.visible) continue;
         auto* resource = require_resource(context, command.handle);
+        auto* effect = command.effect ? require_effect(context, command.effect) : nullptr;
         context->effect_param = command.effect_param;
-        context->compositor->draw([context, resource, &command, projection]() {
+        context->compositor->draw([context, resource, effect, &command, projection]() {
           const auto* paint = resource->paint;
-          const GLuint program = context->paint_program.id;
+          const GLuint program = effect ? effect->program->id : context->paint_program.id;
           glDisable(GL_BLEND);
           glUseProgram(program);
           glUniformMatrix4fv(glGetUniformLocation(program, "u_mvp"), 1, GL_FALSE, projection);
@@ -559,6 +713,16 @@ int ss_gl_render(void* handle, const SSGLDrawCommand* commands, uint64_t count) 
           glUniform1i(glGetUniformLocation(program, "u_paintKind"), paint ? paint->data.kind : 0);
           glUniform1i(glGetUniformLocation(program, "u_gradientCount"),
                       paint ? paint->data.gradient_count : 0);
+          if(effect) {
+            glUniform1i(glGetUniformLocation(program, "u_effectId"),
+                        static_cast<int>(command.effect_id));
+            glUniform1f(glGetUniformLocation(program, "u_effectParam"), command.effect_param);
+            glUniform1f(glGetUniformLocation(program, "u_bleed"), command.bleed);
+            glUniform1i(glGetUniformLocation(program, "u_sdfType"), resource->sdf_type);
+            glUniform4fv(glGetUniformLocation(program, "u_sdfRect"), 1, resource->sdf_rect.data());
+            glUniform4fv(glGetUniformLocation(program, "u_sdfFrame"), 1, resource->sdf_frame.data());
+            apply_effect_uniforms(program, effect);
+          }
           if(paint) {
             glUniform4fv(glGetUniformLocation(program, "u_paintMeta"), 1, paint->data.meta.data());
             glUniform4fv(glGetUniformLocation(program, "u_paintTransform"), 1,
@@ -576,6 +740,10 @@ int ss_gl_render(void* handle, const SSGLDrawCommand* commands, uint64_t count) 
           glActiveTexture(GL_TEXTURE2);
           glBindTexture(GL_TEXTURE_2D,
                         paint && paint->texture ? paint->texture : context->dummy_gradient);
+          if(effect) {
+            glActiveTexture(GL_TEXTURE3);
+            glBindTexture(GL_TEXTURE_2D, resource->sdf ? resource->sdf : context->dummy_gradient);
+          }
           glBindVertexArray(resource->vao);
           glDrawElements(GL_TRIANGLES, resource->index_count, GL_UNSIGNED_SHORT, nullptr);
         }, command.draw_mode, command.blend_mode);

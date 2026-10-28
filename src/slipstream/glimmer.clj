@@ -2,6 +2,7 @@
   (:require [glimmer.backend :as b]
             [slipstream.core :as core]
             [slipstream.glimmer-compiler :as compiler]
+            [slipstream.glimmer-effects :as effects]
             [slipstream.glimmer-renderer :as renderer]
             [slipstream.glimmer-resources :as resources]))
 
@@ -17,7 +18,7 @@
 
 (def ^:private layer-props
   #{:at :transform :scale :color :visible :visibility :opacity
-    :effect-id :effect-param :gradient-id :pattern-id :bleed
+    :effect :effect-id :effect-param :gradient-id :pattern-id :bleed
     :draw-mode :blend-mode})
 
 (defn- layer-prop? [k]
@@ -157,13 +158,21 @@
     (into (vec value) (repeat (- 3 (count value)) 0))))
 
 (defn- resource-command [resource transform scale color props]
-  {:handle (renderer/native-handle resource)
-   :paint (renderer/native-paint-handle resource)
-   :transform transform
-   :scale scale
-   :color color
-   :effect-id (get props :effect-id 0)
-   :effect-param (get props :effect-param 0)})
+  (let [effect (when-let [data (:effect props)]
+                 (effects/effect-program!
+                   (:context resource)
+                   (update data :scene-path #(or % [:effect]))))]
+    {:handle (renderer/native-handle resource)
+     :paint (renderer/native-paint-handle resource)
+     :transform transform
+     :scale scale
+     :color color
+     :effect (get effect :handle 0)
+     :effect-id (get props :effect-id (get effect :id 0))
+     :effect-param (get props :effect-param (get effect :param 0))
+     :bleed (get props :bleed (get effect :bleed 0))
+     :draw-mode (get props :draw-mode :visible)
+     :blend-mode (get props :blend-mode :src-over)}))
 
 (defn- widget-commands [widget parent-transform parent-scale parent-color]
   (let [{:keys [tag props resource resources children]} @widget]
@@ -197,10 +206,24 @@
           (:shape :path)
           [(resource-command resource transform scale color props)]
 
-          (vec (mapcat #(widget-commands % transform scale color) children)))))))
+          (let [mask (:mask props)
+                blend-mode (get props :blend-mode :src-over)
+                offscreen? (or mask (not= :src-over blend-mode))
+                commands (vec (mapcat #(widget-commands % transform scale
+                                                        (if offscreen? parent-color color))
+                                      children))]
+            (if offscreen?
+              (into [{:begin-group mask :transform transform :scale scale :color color}]
+                    (conj commands {:end-group blend-mode}))
+              commands)))))))
 
 (defn- draw-tree [scene]
   (vec (mapcat #(widget-commands % [0 0 0] 1 [1 1 1 1]) (:children @scene))))
+
+(defn current-context
+  "Returns the native context of the running Slipstream scene, or nil headlessly."
+  []
+  @active-context)
 
 (defn- schedule [work]
   (if-let [context @active-context]
@@ -232,7 +255,9 @@
             (renderer/run-loop! context
               {:draw-tree #(draw-tree scene)
                :max-frames (:max-frames opts)
-               :auto-quit-ms (:auto-quit-ms opts)})
+               :auto-quit-ms (:auto-quit-ms opts)
+               :on-start (:on-start opts)
+               :after-render (:after-render opts)})
             (finally
               (reset! b/loop-running? previous-running)
               (try

@@ -1,5 +1,8 @@
 #include "reactive_renderer.hpp"
 
+#include <stdexcept>
+#include <string>
+
 namespace slipstream::reactive {
 
 const char* paint_vertex_source() {
@@ -190,6 +193,103 @@ void main() {
   fragColor = vec4(color.rgb * alpha, alpha);
 }
 )";
+}
+
+namespace {
+
+void replace_main(std::string& source, const std::string& declarations,
+                  const std::string& replacement) {
+  const size_t main = source.find("void main() {");
+  if(main == std::string::npos) throw std::runtime_error("paint shader main was not found");
+  source.resize(main);
+  source += declarations;
+  source += replacement;
+}
+
+}
+
+std::string effect_vertex_source(const std::string& declarations, const std::string& hook) {
+  std::string source = paint_vertex_source();
+  const std::string default_hook = R"(
+SlipstreamVertex slipstream_vertex(SlipstreamVertex vertex, float effectParam) {
+  return vertex;
+}
+)";
+  replace_main(source, R"(
+uniform int u_effectId;
+uniform float u_effectParam;
+uniform float u_bleed;
+struct SlipstreamVertex {
+  vec3 position;
+  vec2 emCoord;
+};
+)" + declarations + "\n" + (hook.empty() ? default_hook : hook) + "\n", R"(
+void main() {
+  vec2 direction = vec2(a_emCoord.z <= 0.0 ? -1.0 : (a_emCoord.z >= 1.0 ? 1.0 : 0.0),
+                        a_emCoord.w <= 0.0 ? -1.0 : (a_emCoord.w >= 1.0 ? 1.0 : 0.0));
+  vec3 position = a_position * u_scale + u_transform;
+  position.xy += direction * u_bleed * u_scale;
+  SlipstreamVertex vertex = SlipstreamVertex(position, a_emCoord.xy + direction * u_bleed);
+  vertex = slipstream_vertex(vertex, u_effectParam);
+  v_emCoord = vertex.emCoord;
+  v_color = a_color * u_color;
+  v_bandTransform = a_bandTransform;
+  v_shapeData = a_shapeData;
+  gl_Position = u_mvp * vec4(vertex.position, 1.0);
+}
+)");
+  return source;
+}
+
+std::string effect_fragment_source(const std::string& declarations, const std::string& hook,
+                                   bool requires_sdf) {
+  std::string source = paint_fragment_source();
+  const std::string default_hook = R"(
+vec4 slipstream_fragment(vec4 color, float fill, float sd, vec2 emCoord, float effectParam) {
+  return vec4(color.rgb, color.a * fill);
+}
+)";
+  replace_main(source, R"(
+uniform int u_effectId;
+uniform float u_effectParam;
+uniform sampler2D u_sdfTexture;
+uniform int u_sdfType;
+uniform vec4 u_sdfRect;
+uniform vec4 u_sdfFrame;
+float slipstream_sdf_sample(vec2 emCoord) {
+  if(u_sdfRect.z <= 0.0) return -1.0;
+  vec2 texel = clamp(u_sdfRect.xy + (emCoord - u_sdfFrame.xy) * u_sdfFrame.z,
+                     u_sdfRect.xy + 0.5, u_sdfRect.xy + u_sdfRect.zw - 0.5);
+  vec3 value = texture(u_sdfTexture, texel / vec2(textureSize(u_sdfTexture, 0))).rgb;
+  return u_sdfType == 0 ? value.r : max(min(value.r, value.g), min(max(value.r, value.g), value.b));
+}
+float slipstream_sdf_coverage(float sd, vec2 emsPerPixel) {
+  if(sd < 0.0) return 0.0;
+  float pixelRange = max(2.0 * u_sdfFrame.w /
+                         max(max(emsPerPixel.x, emsPerPixel.y), 1e-8), 1.0);
+  return clamp((sd - 0.5) * pixelRange + 0.5, 0.0, 1.0);
+}
+)" + declarations + "\n" + (hook.empty() ? default_hook : hook) + "\n",
+               std::string(R"(
+void main() {
+  vec2 emsPerPixel = fwidth(v_emCoord);
+  float fill = slug_Render(v_emCoord, 1.0 / emsPerPixel, v_bandTransform,
+                           ivec2(v_shapeData.xy), ivec2(v_shapeData.zw));
+  if(u_paintKind == 2 && fill > 0.0) fill *= pattern_Fill(v_emCoord, emsPerPixel);
+  vec4 color = v_color;
+  if(u_paintKind == 1) {
+    vec4 gradient = gradient_Color(v_emCoord);
+    color = vec4(gradient.rgb, gradient.a * v_color.a);
+  }
+  float sd = slipstream_sdf_sample(v_emCoord);
+)") + (requires_sdf && hook.empty() ?
+        "  fill = slipstream_sdf_coverage(sd, emsPerPixel);\n" : "") + R"(
+  color = slipstream_fragment(color, fill, sd, v_emCoord, u_effectParam);
+  if(color.a < 0.001) discard;
+  fragColor = vec4(color.rgb * color.a, color.a);
+}
+)");
+  return source;
 }
 
 }
