@@ -250,6 +250,8 @@ typedef struct SSGLUniform {
   uint32_t type;
   uint32_t components;
   float values[16];
+  int32_t int_values[16];
+  uint32_t uint_values[16];
 } SSGLUniform;
 
 typedef struct SSGLDrawCommand {
@@ -295,6 +297,8 @@ void* ss_gl_upload(void* context, void* atlas, const SSLayer* root) SS_NOEXCEPT;
 void* ss_gl_paint_texture(void* context, void* resource) SS_NOEXCEPT;
 int ss_gl_release(void* context, void* handle) SS_NOEXCEPT;
 int ss_gl_render(void* context, const SSGLDrawCommand* commands, uint64_t count) SS_NOEXCEPT;
+/* Index of the command that caused the last render error on this thread, or -1. */
+int64_t ss_gl_error_command(void* context) SS_NOEXCEPT;
 int ss_gl_swap(void* context) SS_NOEXCEPT;
 
 /* Native integration instrumentation: resize the real window, read back GL

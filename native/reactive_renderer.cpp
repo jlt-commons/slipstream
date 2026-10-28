@@ -68,6 +68,8 @@ struct NativeUniform {
   uint32_t type = 0;
   uint32_t components = 0;
   std::array<float, 16> values{};
+  std::array<int32_t, 16> int_values{};
+  std::array<uint32_t, 16> uint_values{};
 };
 
 struct GLEffect {
@@ -122,6 +124,7 @@ std::unordered_set<GLResource*> resources;
 std::unordered_set<GLPaint*> paints;
 std::unordered_set<GLEffect*> effects;
 size_t glfw_users = 0;
+thread_local int64_t gl_error_command = -1;
 
 void glfw_error(int code, const char* message) {
   std::fprintf(stderr, "GLFW error %d: %s\n", code, message);
@@ -223,6 +226,7 @@ void validate_commands(GLContext* context, const SSGLDrawCommand* commands, uint
   if(count > 0 && !commands) throw std::invalid_argument("GL draw commands are null");
   uint64_t depth = 0;
   for(uint64_t i = 0; i < count; ++i) {
+    gl_error_command = static_cast<int64_t>(i);
     const auto& command = commands[i];
     if(command.kind > 2) throw std::invalid_argument("unknown GL command kind");
     validate_blend_mode(command.blend_mode);
@@ -264,37 +268,21 @@ void apply_effect_uniforms(GLuint program, const GLEffect* effect) {
     const GLint location = glGetUniformLocation(program, uniform.name.c_str());
     if(location < 0) continue;
     const float* v = uniform.values.data();
+    const int32_t* iv = uniform.int_values.data();
+    const uint32_t* uv = uniform.uint_values.data();
     switch(uniform.type) {
       case 0: glUniform1fv(location, 1, v); break;
       case 1: glUniform2fv(location, 1, v); break;
       case 2: glUniform3fv(location, 1, v); break;
       case 3: glUniform4fv(location, 1, v); break;
-      case 4: case 12: {
-        std::array<int32_t, 16> values{};
-        for(uint32_t i = 0; i < uniform.components; ++i) values[i] = static_cast<int32_t>(v[i]);
-        glUniform1iv(location, 1, values.data());
-        break;
-      }
-      case 5: case 13: case 6: case 14: case 7: case 15: {
-        std::array<int32_t, 16> values{};
-        for(uint32_t i = 0; i < uniform.components; ++i) values[i] = static_cast<int32_t>(v[i]);
-        if(uniform.components == 2) glUniform2iv(location, 1, values.data());
-        else if(uniform.components == 3) glUniform3iv(location, 1, values.data());
-        else glUniform4iv(location, 1, values.data());
-        break;
-      }
-      case 8: {
-        glUniform1ui(location, static_cast<uint32_t>(v[0]));
-        break;
-      }
-      case 9: case 10: case 11: {
-        std::array<uint32_t, 16> values{};
-        for(uint32_t i = 0; i < uniform.components; ++i) values[i] = static_cast<uint32_t>(v[i]);
-        if(uniform.components == 2) glUniform2uiv(location, 1, values.data());
-        else if(uniform.components == 3) glUniform3uiv(location, 1, values.data());
-        else glUniform4uiv(location, 1, values.data());
-        break;
-      }
+      case 4: case 12: glUniform1iv(location, 1, iv); break;
+      case 5: case 13: glUniform2iv(location, 1, iv); break;
+      case 6: case 14: glUniform3iv(location, 1, iv); break;
+      case 7: case 15: glUniform4iv(location, 1, iv); break;
+      case 8: glUniform1ui(location, uv[0]); break;
+      case 9: glUniform2uiv(location, 1, uv); break;
+      case 10: glUniform3uiv(location, 1, uv); break;
+      case 11: glUniform4uiv(location, 1, uv); break;
       case 16: glUniformMatrix3fv(location, 1, GL_FALSE, v); break;
       case 17: glUniformMatrix4fv(location, 1, GL_FALSE, v); break;
       default: throw std::invalid_argument("unknown effect uniform type");
@@ -521,6 +509,8 @@ void* ss_gl_effect_program(
       target.type = source.type;
       target.components = source.components;
       std::copy(source.values, source.values + source.components, target.values.begin());
+      std::copy(source.int_values, source.int_values + source.components, target.int_values.begin());
+      std::copy(source.uint_values, source.uint_values + source.components, target.uint_values.begin());
       effect->uniforms.push_back(std::move(target));
     }
     auto* result = effect.get();
@@ -655,6 +645,7 @@ int ss_gl_release(void* handle, void* resourceHandle) noexcept {
 int ss_gl_render(void* handle, const SSGLDrawCommand* commands, uint64_t count) noexcept {
   ss_try(1,
     auto* context = require_context(handle);
+    gl_error_command = -1;
     validate_commands(context, commands, count);
     glfwMakeContextCurrent(context->window);
     int width = 0;
@@ -671,6 +662,7 @@ int ss_gl_render(void* handle, const SSGLDrawCommand* commands, uint64_t count) 
     context->compositor->begin_frame(width, height, bounds);
     try {
       for(uint64_t i = 0; i < count; ++i) {
+        gl_error_command = static_cast<int64_t>(i);
         const auto& command = commands[i];
         if(command.kind == 2) {
           context->compositor->end_group(command.blend_mode);
@@ -753,8 +745,17 @@ int ss_gl_render(void* handle, const SSGLDrawCommand* commands, uint64_t count) 
       context->compositor->restore();
       throw;
     }
+    gl_error_command = -1;
     return 0;
   );
+}
+
+int64_t ss_gl_error_command(void* handle) noexcept {
+  if(!handle) return -1;
+  auto* context = static_cast<GLContext*>(handle);
+  std::lock_guard lock(registry_mutex);
+  if(!contexts.contains(context)) return -1;
+  return gl_error_command;
 }
 
 int ss_gl_swap(void* handle) noexcept {

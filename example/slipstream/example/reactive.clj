@@ -59,8 +59,19 @@
 
 (defn- frame-hash [pixels]
   (reduce (fn [value byte]
-            (mod (+ (* 31 value) (long byte)) 2147483647))
-          1 (take-nth 16 pixels)))
+            (unchecked-multiply (bit-xor value (long byte)) 1099511628211))
+          -3750763034362895579 pixels))
+
+(def ^:private golden-frame-hashes
+  {:initial -7456958573527989925
+   :text -7870320409726486553
+   :position-color -6933438049585219359
+   :path -3097736242844332688
+   :gradient -3075831904602540550
+   :mask 7903284231896236728
+   :blend -959613850239315786
+   :effect-param -8312363664093175917
+   :repl 6025851901073379397})
 
 (defn- checkpoint! [results label capture-dir]
   (let [context (sg/current-context)
@@ -81,13 +92,13 @@
     checkpoint))
 
 (defn- update-and-check! [results label _capture-dir update]
-  (swap! results assoc :pending label)
-  (update))
+  (swap! results assoc :pending {:label label :update update}))
 
 (defn- capture-pending! [results capture-dir]
-  (when-let [label (:pending @results)]
+  (when-let [{:keys [label update]} (:pending @results)]
     (swap! results dissoc :pending)
-    (checkpoint! results label capture-dir)))
+    (checkpoint! results label capture-dir)
+    (when update (update))))
 
 (defn smoke-updates! [results capture-dir]
   (let [steps [[:initial #(swap! scene-state assoc :text "LIVE")]
@@ -98,7 +109,7 @@
                [:path #(swap! scene-state assoc :stops
                               [[0 [1 1 0.1 1]] [0.5 [0.8 0.1 0.5 1]] [1 [0.1 1 0.8 1]]])]
                [:gradient #(swap! scene-state assoc :mask
-                                  {:type :rect :params [0.15 0.15 0.65 0.65] :invert true})]
+                                  {:type :rect :params [0.15 0.15 0.65 0.65]})]
                [:mask #(swap! scene-state assoc :blend-mode :screen)]
                [:blend #(reset! effect-param 0.35)]
                [:effect-param
@@ -126,7 +137,7 @@
               (do
                 (swap! wait inc)
                 (renderer/schedule! (sg/current-context) @step))
-              (swap! results assoc :pending :repl)))
+              (swap! results assoc :pending {:label :repl})))
           (catch Throwable error
             (swap! results assoc :error
                    (ex-info "reactive smoke update failed"
@@ -142,12 +153,12 @@
       (throw (ex-info "reactive smoke missed checkpoints" {:checkpoints checkpoints})))
     (when-not (apply = (map :context checkpoints))
       (throw (ex-info "reactive smoke replaced the native window" {:checkpoints checkpoints})))
-    (when-not (<= 7 (count (distinct (map :frame-hash checkpoints))))
-      (throw (ex-info "reactive checkpoints did not render the staged updates"
-                      {:checkpoints checkpoints})))
-    (when (= (:frame-hash (by-label :effect-param)) (:frame-hash (by-label :repl)))
-      (throw (ex-info "the queued REPL update did not reach the framebuffer"
-                      {:checkpoints checkpoints})))
+    (doseq [[label expected] golden-frame-hashes]
+      (let [actual (get-in by-label [label :frame-hash])]
+        (when-not (= expected actual)
+          (throw (ex-info "reactive golden frame hash mismatch"
+                          {:label label :expected expected :actual actual
+                           :checkpoints checkpoints})))))
     (doseq [[before after] [[:text :position-color]
                             [:gradient :mask] [:mask :blend] [:blend :effect-param]]]
       (when-not (= (select-keys (by-label before) [:resource-uploads :shader-compilations])

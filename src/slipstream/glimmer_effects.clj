@@ -24,20 +24,31 @@
       (when-not type-id
         (fail effect "unsupported effect uniform type" {:uniform uniform-name :type type}))
       (let [scalar? (= 1 components)
-            boolean-type? (contains? #{:bool} type)
+            transport (cond
+                        (contains? #{:int :ivec2 :ivec3 :ivec4} type) :int
+                        (contains? #{:uint :uvec2 :uvec3 :uvec4} type) :uint
+                        (contains? #{:bool :bvec2 :bvec3 :bvec4} type) :bool
+                        :else :float)
             values (if scalar? [value] value)]
         (when-not (and (sequential? values) (= components (count values)))
           (fail effect "effect uniform value has the wrong component count"
                 {:uniform uniform-name :type type :value value}))
-        (when (and (= :mat3 type) (not= 9 (count values)))
-          (fail effect "mat3 uniforms require nine values" {:uniform uniform-name}))
         (doseq [component values]
-          (when-not (if boolean-type? (boolean? component) (number? component))
-            (fail effect "effect uniform value does not match its type"
+          (when-not (case transport
+                      :bool (boolean? component)
+                      :int (and (integer? component)
+                                (<= -2147483648 component 2147483647))
+                      :uint (and (integer? component) (<= 0 component 4294967295))
+                      :float (number? component))
+            (fail effect "effect uniform value does not match its type or 32-bit range"
                   {:uniform uniform-name :type type :value value})))
         {:name uniform-name :glsl-name (str "u_" uniform-name) :glsl-type glsl-type
-         :type type :type-id type-id :components components
-         :values (mapv #(if (boolean? %) (if % 1.0 0.0) (double %)) values)}))))
+         :type type :type-id type-id :components components :transport transport
+         :values (mapv #(case transport
+                          :bool (if % 1 0)
+                          (:int :uint) (long %)
+                          :float (double %))
+                       values)}))))
 
 (defn normalize-effect [effect]
   (when-not (map? effect)
@@ -71,10 +82,10 @@
                                         {:type (:type uniform)
                                          :value (if (= 1 (:components uniform))
                                                   (let [value (first (:values uniform))]
-                                                    (if (= :bool (:type uniform))
+                                                    (if (contains? #{:bool :bvec2 :bvec3 :bvec4} (:type uniform))
                                                       (pos? value)
                                                       value))
-                                                  (mapv #(if (= :bool (:type uniform))
+                                                  (mapv #(if (contains? #{:bool :bvec2 :bvec3 :bvec4} (:type uniform))
                                                            (pos? %)
                                                            %)
                                                         (:values uniform)))}])
@@ -105,8 +116,13 @@
                              (ffi/string->ptr arena (:glsl-name uniform)))
             (ffi/write-field p f/gl-uniform-layout :type (:type-id uniform))
             (ffi/write-field p f/gl-uniform-layout :components (:components uniform))
-            (doseq [[j value] (map-indexed vector (:values uniform))]
-              (ffi/write-field p f/gl-uniform-layout [:values j] value))))
+            (let [field (case (:transport uniform)
+                          :float :values
+                          :int :int-values
+                          :uint :uint-values
+                          :bool :int-values)]
+              (doseq [[j value] (map-indexed vector (:values uniform))]
+                (ffi/write-field p f/gl-uniform-layout [field j] value)))))
         (let [handle (f/gl-effect-program
                        (:handle context)
                        (ffi/string->ptr arena (:program-key effect))

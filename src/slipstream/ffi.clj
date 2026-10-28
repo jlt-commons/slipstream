@@ -154,7 +154,9 @@
                         [:reserved [:array :uint8 2]] [:mask-params [:array :float 6]]]]))
 (def gl-uniform-layout
   (ffi/layout [:struct [[:name :pointer] [:type :uint32] [:components :uint32]
-                        [:values [:array :float 16]]]]))
+                        [:values [:array :float 16]]
+                        [:int-values [:array :int32 16]]
+                        [:uint-values [:array :uint32 16]]]]))
 (def gl-frame-state-layout
   (ffi/layout [:struct [[:viewport [:array :int32 4]]
                         [:framebuffer-binding :int32]
@@ -176,6 +178,7 @@
 (ffi/defcfn gl-paint-texture "ss_gl_paint_texture" [:pointer :pointer] :pointer)
 (ffi/defcfn gl-release "ss_gl_release" [:pointer :pointer] :int32)
 (ffi/defcfn gl-render "ss_gl_render" [:pointer :pointer :uint64] :int32)
+(ffi/defcfn gl-error-command "ss_gl_error_command" [:pointer] :int64)
 (ffi/defcfn gl-swap "ss_gl_swap" [:pointer] :int32)
 (ffi/defcfn gl-test-resize "ss_gl_test_resize" [:pointer :int32 :int32] :int32)
 (ffi/defcfn gl-test-bind-nondefault "ss_gl_test_bind_nondefault"

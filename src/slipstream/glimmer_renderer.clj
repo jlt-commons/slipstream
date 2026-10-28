@@ -202,11 +202,18 @@
             (ffi/write-field p f/gl-draw-command-layout [:mask-params i]
                              (nth (:mask-params command) i)))))
       (when-not (zero? (f/gl-render handle command-p (count commands)))
-        (let [effect-index (or (first (keep-indexed (fn [i command]
-                                                     (when-not (zero? (:effect command)) i))
-                                                   commands))
-                               0)]
-          (native-failure :render! {:scene-path [effect-index :effect]})))))
+        (let [native-index (f/gl-error-command handle)
+              command-index (if (and (integer? native-index) (<= 0 native-index))
+                              native-index
+                              (or (first (keep-indexed (fn [i command]
+                                                        (when-not (zero? (:effect command)) i))
+                                                      commands))
+                                  0))
+              field (if (and (< command-index (count commands))
+                             (not (zero? (:effect (nth commands command-index)))))
+                      :effect
+                      :render)]
+          (native-failure :render! {:scene-path [command-index field]})))))
   nil)
 
 (defn poll! [context]

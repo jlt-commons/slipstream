@@ -149,6 +149,47 @@
         (finally
           (release context resource))))))
 
+(deftest integer-unsigned-and-boolean-vector-uniforms-preserve-exact-values
+  (with-context [context]
+    (let [resource (upload context)
+          effect (effects/effect-program!
+                   context
+                   {:id 10 :param 1
+                    :fragment-hook
+                    "vec4 slipstream_fragment(vec4 color, float fill, float sd, vec2 emCoord, float effectParam) {
+                       bool exact = u_intOdd == 16777217 &&
+                                    u_uintHigh == 4294967295u &&
+                                    u_intMin == (-2147483647 - 1) &&
+                                    u_flags.x && !u_flags.y;
+                       vec3 rgb = exact ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+                       return vec4(rgb, fill);
+                     }"
+                    :uniforms {:intOdd {:type :int :value 16777217}
+                               :uintHigh {:type :uint :value 4294967295}
+                               :intMin {:type :int :value -2147483648}
+                               :flags {:type :bvec2 :value [true false]}}})]
+      (try
+        (check-pixel (capture context [(draw resource effect)]) [32 32] [0 255 0 255])
+        (finally
+          (release context resource))))))
+
+(deftest integer-unsigned-and-boolean-vector-uniforms-reject-invalid-values
+  (doseq [spec [{:type :int :value 1.5}
+                {:type :int :value 2147483648}
+                {:type :int :value -2147483649}
+                {:type :uint :value -1}
+                {:type :uint :value 1.5}
+                {:type :uint :value 4294967296}
+                {:type :bvec2 :value [true 1]}
+                {:type :bvec3 :value [true false 0]}
+                {:type :bvec4 :value [true false true nil]}]]
+    (let [error (try
+                  (effects/normalize-effect {:id 1 :uniforms {:bad spec}})
+                  nil
+                  (catch Throwable error error))]
+      (is (some? error) (pr-str spec))
+      (is (vector? (:scene-path (ex-data error)))))))
+
 (deftest effect-program-cache-is-complete-and-context-local
   (let [a (renderer/create-context {:width 64 :height 64 :bounds [0 1 0 1] :visible false})
         b (renderer/create-context {:width 64 :height 64 :bounds [0 1 0 1] :visible false})
@@ -223,6 +264,23 @@
                     (catch Throwable error error))]
         (is (some? error))
         (is (vector? (:scene-path (ex-data error))))))))
+
+(deftest missing-sdf-error-identifies-the-exact-failing-draw-command
+  (with-context [context]
+    (let [valid (upload context {:sdf true})
+          missing (upload context)
+          effect (effects/effect-program! context {:id 1 :param 1 :sdf true})]
+      (try
+        (let [error (try
+                      (capture context [(draw valid effect) (draw missing effect)])
+                      nil
+                      (catch Throwable error error))]
+          (is (some? error))
+          (is (= [1 :effect] (:scene-path (ex-data error))))
+          (is (re-find #"SDF" (.getMessage error))))
+        (finally
+          (release context valid)
+          (release context missing))))))
 
 (deftest baked-sdf-texture-format-matches-the-requested-generator
   (doseq [[sdf-type format] [[:sdf :r32f] [:msdf :rgb32f]]]
