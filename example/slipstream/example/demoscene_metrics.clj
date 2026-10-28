@@ -53,7 +53,7 @@
   (atom {:options options
          :warmup-ms (get options :warmup-ms 2000)
          :max-samples (get options :max-samples 600)
-         :hud-interval-ms (get options :hud-interval-ms 250)
+         :hud-interval-ms (max 250 (get options :hud-interval-ms 250))
          :started-at nil
          :previous-at nil
          :last-at nil

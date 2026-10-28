@@ -111,6 +111,17 @@
         (metrics/sample-frame! collector (frame-state {:live-resources 5}) 500)
         (is (re-find #"resources=5" (metrics/hud-status collector)))))))
 
+(deftest hud-interval-option-cannot-bypass-four-hz-limit
+  (let [collector (metrics/new-collector {:warmup-ms 0 :hud-interval-ms 0})]
+    (metrics/sample-frame! collector (frame-state) 0)
+    (let [initial (metrics/hud-status collector)]
+      (metrics/sample-frame! collector (frame-state {:live-resources 3}) 1)
+      (is (= initial (metrics/hud-status collector)))
+      (metrics/sample-frame! collector (frame-state {:live-resources 4}) 249)
+      (is (= initial (metrics/hud-status collector)))
+      (metrics/sample-frame! collector (frame-state {:live-resources 4}) 250)
+      (is (re-find #"resources=4" (metrics/hud-status collector))))))
+
 (deftest reset-clears-measurements-but-retains-native-cumulative-counters
   (let [collector (metrics/new-collector {:warmup-ms 0})]
     (metrics/sample-frame! collector (frame-state) 0)
