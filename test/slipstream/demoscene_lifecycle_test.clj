@@ -1,9 +1,12 @@
 (ns slipstream.demoscene-lifecycle-test
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [clojure.edn :as edn]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is use-fixtures]]
             [glimmer.core :as ui]
             [jolt.nrepl :as jolt-nrepl]
             [nrepl.core :as nrepl]
             [slipstream.example.demoscene :as demo]
+            [slipstream.example.demoscene-metrics :as metrics]
             [slipstream.example.demoscene-shader :as visuals]
             [slipstream.glimmer :as sg]
             [slipstream.glimmer-renderer :as renderer]))
@@ -344,13 +347,26 @@
             (is (= [640 400] [(:width before-frame) (:height before-frame)]))
             (is (not= (hash (vec (:pixels before-frame)))
                       (hash (vec (:pixels after-frame))))
-                "the redefined palette must render in the existing window")))
+                "the redefined palette must render in the existing window")
+            (is (= [{:profile :text :intensity 2 :sdf false}]
+                   (evaluate (str "(slipstream.example.demoscene/load-profile! :text "
+                                  "{:intensity 2 :sdf false})"))))
+            (let [{profile-context :context profile-frame :frame} (capture-live-frame)]
+              (is (identical? after-context profile-context))
+              (is (not= (hash (vec (:pixels after-frame)))
+                        (hash (vec (:pixels profile-frame))))
+                  "the nREPL profile change must render in the existing window"))))
+        (is (= [0]
+               (evaluate (str "(do (slipstream.example.demoscene/reset-metrics!) "
+                              "(:sample-count (slipstream.example.demoscene/metrics-snapshot)))"))))
+        (is (pos? (first (evaluate (str "(get-in (slipstream.example.demoscene/metrics-snapshot) "
+                                       "[:cumulative-counters :resource-uploads])")))))
         (is (= [nil] (evaluate "(slipstream.example.demoscene/stop!)")))
         {:closed-via-nrepl? true})
       (finally
         (nrepl/close transport)))))
 
-(deftest rich-nrepl-redefines-state-palette-and-update-function-in-one-live-window
+(deftest rich-nrepl-redefines-state-palette-update-function-and-profile-in-one-live-window
   (let [real-start jolt-nrepl/start
         real-run ui/run
         original-update-state visuals/update-state
@@ -381,8 +397,9 @@
                                                 (deliver client-result {:error error})
                                                 (demo/stop!))))))]
                         (apply real-run root-fn (mapcat identity opts))))]
-        (is (pos? (:port (demo/start! {:font-path test-font :port 0
-                                      :width 320 :height 200 :auto-quit-ms 10000})))))
+        (is (pos? (:port (demo/start! {:font-path test-font :port 0 :metrics true
+                                      :warmup-ms 0 :width 320 :height 200
+                                      :auto-quit-ms 10000})))))
       (let [{:keys [error] :as result}
             (deref client-result 1000 {:error (ex-info "Live nREPL client did not finish" {})})]
         (when error (throw error))
@@ -429,3 +446,74 @@
          (demo/parse-args [test-font "--port" "0"
                            "--capture-dir" "native/build/captures"
                            "--max-frames" "2" "--auto-quit-ms" "15"]))))
+
+(deftest clean-exit-prints-one-edn-summary-with-post-reset-metrics
+  (let [events (atom [])
+        frame {:framebuffer-size [640 480]
+               :shader-compilations 6 :resource-uploads 10 :paint-texture-uploads 4
+               :live-resources 2 :live-effects 1
+               :draw-commands 8 :geometry-commands 6 :group-commands 2}
+        output (with-out-str
+                 (with-redefs [jolt-nrepl/start (fn [& _] (fake-stop events 7888))
+                               sg/current-context (constantly nil)
+                               ui/run
+                               (fn [_root-fn & {:as opts}]
+                                 ((:after-render opts))
+                                 (metrics/sample-frame! demo/metrics-collector frame 0)
+                                 (demo/reset-metrics!)
+                                 (metrics/sample-frame! demo/metrics-collector frame 100)
+                                 (metrics/sample-frame! demo/metrics-collector frame 116))]
+                   (is (= {:port 7888}
+                          (demo/start! {:font-path test-font :profile :geometry
+                                        :intensity 2 :warmup-ms 0 :metrics false
+                                        :summary true})))))
+        summary-lines (filter #(str/starts-with? % "{") (str/split-lines output))
+        summary (edn/read-string (first summary-lines))]
+    (is (= 1 (count summary-lines)) output)
+    (is (= {:profile :geometry :intensity 2}
+           (select-keys summary [:profile :intensity])))
+    (is (= {:profile :geometry :intensity 2 :sdf nil
+            :warmup-ms 0 :metrics false :summary true}
+           (:options summary)))
+    (is (number? (:initialization-ms summary)))
+    (is (not (neg? (:initialization-ms summary))))
+    (is (zero? (:warmup-ms summary)))
+    (is (= 1 (:sample-count summary)))
+    (is (= {:p50 16.0 :p95 16.0 :p99 16.0} (:frame-percentiles-ms summary)))
+    (is (= [640 480] (:framebuffer-size summary)))
+    (is (= {:live-resources 2 :live-effects 1 :draw-commands 8
+            :geometry-commands 6 :group-commands 2}
+           (select-keys summary [:live-resources :live-effects :draw-commands
+                                 :geometry-commands :group-commands])))
+    (is (= {:shader-compilations 6 :resource-uploads 10 :paint-texture-uploads 4}
+           (:cumulative-counters summary)))
+    (is (= {:shader-compilations 0 :resource-uploads 0 :paint-texture-uploads 0}
+           (:counter-deltas summary)))
+    (is (nil? (demo/stop!)))
+    (is (= [:stop] @events))))
+
+(deftest primary-cleanup-error-survives-summary-generation-and-output-failures
+  (doseq [stage [:generation :output]]
+    (let [primary (ex-info "injected primary cleanup failure" {:stage :cleanup})
+          summary-failure (ex-info "injected summary failure" {:stage stage})
+          error-output (java.io.StringWriter.)
+          actual (with-redefs [jolt-nrepl/start
+                               (fn [& _]
+                                 (with-meta (fn [] (throw primary))
+                                   {:port 7888 :port-file nil}))
+                               ui/run (fn [& _] nil)
+                               demo/metrics-snapshot
+                               (if (= :generation stage)
+                                 (fn [] (throw summary-failure))
+                                 (constantly {}))
+                               prn (if (= :output stage)
+                                     (fn [& _] (throw summary-failure))
+                                     prn)]
+                   (binding [*err* error-output]
+                     (try
+                       (demo/start! {:font-path test-font :profile :shader :summary true})
+                       nil
+                       (catch Throwable error error))))]
+      (is (identical? primary actual) (pr-str stage))
+      (is (re-find #"injected summary failure" (str error-output)) (pr-str stage))
+      (is (nil? (demo/stop!))))))

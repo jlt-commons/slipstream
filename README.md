@@ -57,11 +57,13 @@ Run the reference, reactive, and live demoscene examples:
 jolt -m slipstream.example.glfw "$SLIPSTREAM_TEST_FONT"
 jolt -m slipstream.example.reactive "$SLIPSTREAM_TEST_FONT" --auto-quit-ms 10000
 jolt -m slipstream.example.demoscene "$SLIPSTREAM_TEST_FONT"
+jolt -m slipstream.example.demoscene "$SLIPSTREAM_TEST_FONT" \
+  --profile all --intensity 1 --warmup-ms 1000 --auto-quit-ms 5000
 ```
 
 The reactive example's timed mode performs its golden/smoke checkpoint sequence. Add `--capture-dir native/build/reactive-captures` to write inspection images.
 
-The demoscene starts a rich nREPL on port `7888` and runs until its native window closes. Connect an editor to change reactive state, redefine palette/update functions, and evaluate `slipstream.example.demoscene/stop!` without restarting the window. See the [complete demoscene guide](docs/demoscene.md) for controls, lifecycle, useful evaluations, and test/capture options.
+The demoscene starts a rich nREPL on port `7888` and runs until its native window closes. Connect an editor to change reactive state, redefine palette/update functions, switch bounded performance workloads with `load-profile!`, inspect/reset metrics, and evaluate `slipstream.example.demoscene/stop!` without restarting the window. Stress profiles enable HUD metrics and one clean-exit EDN summary by default; the original showcase keeps both opt-in. See the [complete demoscene and performance guide](docs/demoscene.md) for workload scaling, warm-up/counter interpretation, CLI options, lifecycle, useful evaluations, and captures.
 
 GUI checks require a working display/OpenGL context; dependency resolution or compilation alone is not visual verification.
 

@@ -12,7 +12,7 @@ Slipstream is a data-oriented Jolt wrapper for Slughorn. It has four complementa
 - [Core and native resource API](core.md) — every public `slipstream.core` operation and its options.
 - [Declarative scene DSL](scene.md) — every scene primitive, option, reference rule, and compilation behavior.
 - [Reactive Glimmer guide](glimmer.md) — reactive primitives, ratoms/components, incremental updates, masks, and lifecycle.
-- [Live hybrid demoscene](demoscene.md) — controls, visual architecture, rich nREPL development, lifecycle, and capture workflow.
+- [Live hybrid demoscene and performance profiles](demoscene.md) — controls, visual architecture, rich nREPL development, bounded stress workloads, metrics/warm-up, EDN summaries, lifecycle, and capture workflow.
 - [Rendering and effects](rendering.md) — low-level GL contexts, draw commands, GPU resources, and custom shader effects.
 - [Raw FFI and commands](ffi.md) — raw `slipstream.ffi` bindings, ABI layouts, command-line entry points, and compatibility behavior.
 
@@ -39,7 +39,7 @@ jolt -m slipstream.example.reactive "$SLIPSTREAM_TEST_FONT" --auto-quit-ms 10000
 jolt -m slipstream.example.demoscene "$SLIPSTREAM_TEST_FONT"
 ```
 
-The reference example accepts `--curve-precision 16|32`, `--frames N`, and `--capture PATH`. The reactive example accepts `--auto-quit-ms N` and `--capture-dir PATH`. The demoscene additionally accepts `--port N` and `--max-frames N`, starts a rich nREPL, and supports live redefinition in one native window; see [its guide](demoscene.md).
+The reference example accepts `--curve-precision 16|32`, `--frames N`, and `--capture PATH`. The reactive example accepts `--auto-quit-ms N` and `--capture-dir PATH`. The demoscene additionally accepts `--port N`, `--max-frames N`, `--profile`, `--intensity`, `--sdf`, `--warmup-ms`, `--metrics`, and `--summary`. It starts a rich nREPL and supports live redefinition plus same-context workload switching; see the [performance and live-development guide](demoscene.md).
 
 ## Data conventions
 

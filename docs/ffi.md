@@ -143,8 +143,10 @@ Canvas commit outputs may contain borrowed named-key storage. Copy data while it
 | `(gl-test-bind-nondefault context x y width height)` — pointer, four `:int32` | `:int32` | Test-only `ss_gl_test_bind_nondefault`. |
 | `(gl-test-restore-default context)` — `:pointer` | `:int32` | Test-only `ss_gl_test_restore_default`. |
 | `(gl-test-fail-next context point)` — `:pointer :uint32` | `:int32` | Test-only `ss_gl_test_fail_next`. |
-| `(gl-test-frame-state context out)` — two pointers | `:int32` | Test-only `ss_gl_test_frame_state`. |
+| `(gl-test-frame-state context out)` — two pointers | `:int32` | `ss_gl_test_frame_state`; fills viewport/FBO sizes, projection, cumulative counters, and live counts. Used by the general `renderer/frame-state` API despite the historical symbol name. |
 | `(gl-test-capture context pixels byte-count)` — two pointers, `:uint64` | `:int32` | Test-only `ss_gl_test_capture`. |
+
+The `gl-frame-state-layout` instrumentation tail is `:shader-compilations`, `:resource-uploads`, and `:paint-texture-uploads` as unsigned 32-bit cumulative counters, `:effect-param` as a float diagnostic, then `:live-resources` and `:live-effects` as unsigned 32-bit current counts. Read the layout descriptors rather than duplicating offsets. Timing and percentile windows belong to callers such as the demoscene collector, not this raw query.
 
 All GL handles are context-owned. Passing a handle from another context is an error, not a share operation.
 
@@ -197,10 +199,13 @@ Timed mode runs the full reactive checkpoint/golden sequence. Use `--auto-quit-m
 
 ```sh
 jolt -m slipstream.example.demoscene <font.ttf> [--port N] [--capture-dir PATH]
-                                               [--max-frames N] [--auto-quit-ms N]
+  [--max-frames N] [--auto-quit-ms N]
+  [--profile showcase|geometry|text|compositor|shader|all]
+  [--intensity N] [--sdf true|false] [--warmup-ms N]
+  [--metrics true|false] [--summary true|false]
 ```
 
-The demoscene uses the reactive GL input/close bindings above and starts rich default/CIDER nREPL middleware before native UI creation. Its default port is `7888`; `0` selects an OS-assigned port. With no frame/time limit it runs until native close or `slipstream.example.demoscene/stop!`. See the [demoscene guide](demoscene.md) for controls, `start!`/`stop!`, live evaluation, and captures.
+The demoscene uses the reactive GL input/close bindings above and starts rich default/CIDER nREPL middleware before native UI creation. Its default port is `7888`; `0` selects an OS-assigned port. With no frame/time limit it runs until native close or `slipstream.example.demoscene/stop!`. Stress profiles default to live metrics and one clean-exit EDN summary; `showcase` keeps both opt-in. See the [demoscene guide](demoscene.md) for controls, workload switching, metric reset, summary fields, `start!`/`stop!`, live evaluation, and captures.
 
 ## Compatibility versus advanced rendering
 

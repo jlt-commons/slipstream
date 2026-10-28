@@ -50,6 +50,9 @@ Each frame polls, drains scheduled work on the UI thread, renders, invokes `afte
 - `(swap-buffers! context)` — present the frame.
 - `(schedule! context work)` — run immediately only before the loop starts; queue while running; drop after teardown.
 - `(capture! context)` — return `{:width w :height h :pixels byte-array}` containing RGBA bytes. This is test/instrumentation API.
+- `(frame-state context)` — return a plain map with `:viewport` `[x y width height]`, `:framebuffer-size` `[width height]`, `:window-size` `[width height]`, and a 16-element `:projection` matrix. Instrumentation fields are cumulative `:shader-compilations`, `:resource-uploads`, and `:paint-texture-uploads`, plus current `:live-resources` and `:live-effects`.
+
+`frame-state` is the general read API for UI-thread instrumentation despite the underlying historical `gl-test-frame-state` FFI name. Counters are context-cumulative; live resource/effect counts are instantaneous. It performs no timing and allocates no native callbacks. Applications can sample it after rendering to build their own windows/percentiles. The [demoscene collector](demoscene.md#metrics-warm-up-and-edn-summaries) adds bounded frame durations, warm-up/reset behavior, command counts when supplied by instrumentation, and EDN summaries.
 
 ### Native input and close
 

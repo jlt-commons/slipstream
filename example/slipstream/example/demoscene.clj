@@ -32,14 +32,15 @@
 (defn reset-metrics! []
   (metrics/reset-metrics! metrics-collector))
 
-(defn- sample-metrics! [enabled?]
+(defn- sample-metrics! [enabled? hud?]
   (when (and enabled? (sg/current-context))
     (let [now (System/currentTimeMillis)]
       (metrics/sample-frame! metrics-collector
                              (renderer/frame-state (sg/current-context)) now)
-      (let [text (metrics/hud-status metrics-collector)]
-        (when (not= text (:metrics-text @state))
-          (swap! state assoc :metrics-text text))))))
+      (when hud?
+        (let [text (metrics/hud-status metrics-collector)]
+          (when (not= text (:metrics-text @state))
+            (swap! state assoc :metrics-text text)))))))
 
 (defn app
   ([font-path] (app font-path (:aspect @state) (:bounds @state)))
@@ -107,9 +108,23 @@
           (println (str "Demoscene cleanup failed after " (ex-message primary)
                         ": " (ex-message cleanup-error))
                    (ex-data cleanup-error)))
-        (throw cleanup-error)))
+        (do
+          (reset! primary-error cleanup-error)
+          (throw cleanup-error))))
     (finally
-      (reset! lifecycle nil))))
+      (try
+        (when (and @(:clean-exit? run) (:summary run)
+                   (compare-and-set! (:summary-reported? run) false true))
+          ((:summary run)))
+        (catch Throwable summary-error
+          (if-let [primary @primary-error]
+            (binding [*out* *err*]
+              (println (str "Demoscene summary failed after " (ex-message primary)
+                            ": " (ex-message summary-error))
+                       (ex-data summary-error)))
+            (throw summary-error)))
+        (finally
+          (reset! lifecycle nil))))))
 
 (defn- run-with-cleanup [run work]
   (let [primary-error (atom nil)]
@@ -129,7 +144,11 @@
   (let [config (profiles/profile-config (or profile :showcase)
                                         {:intensity (if (nil? intensity) 1 intensity) :sdf sdf})
         warmup-ms (or warmup-ms 2000)
-        metrics-enabled? (true? metrics)
+        stress? (not= :showcase (:profile config))
+        metrics-enabled? (if (nil? metrics) stress? (true? metrics))
+        summary-enabled? (if (nil? summary) stress? (true? summary))
+        initialization-ms (atom nil)
+        started-at (System/nanoTime)
         _ (when-not (and (integer? warmup-ms) (not (neg? warmup-ms)))
             (throw (ex-info "warmup-ms must be a non-negative integer"
                             {:option :warmup-ms :value warmup-ms})))
@@ -142,7 +161,9 @@
                       run {:port actual-port
                            :stop-server stop-server
                            :server-stopped? (atom false)
-                           :close-requested? (atom false)}]
+                           :close-requested? (atom false)
+                           :clean-exit? (atom false)
+                           :summary-reported? (atom false)}]
                   (try
                     (reset! lifecycle run)
                     (assoc run :owner? true)
@@ -152,7 +173,11 @@
     (if-not (:owner? run)
       {:port (:port run)}
       (run-with-cleanup
-        run
+        (assoc run :summary
+               (when summary-enabled?
+                 (fn []
+                   (prn (assoc (metrics-snapshot)
+                               :initialization-ms (or @initialization-ms 0.0))))))
         (fn []
           (println (str "Demoscene nREPL: 127.0.0.1:" (:port run)
                         " — connect your editor"))
@@ -171,7 +196,7 @@
             (reset! metrics-collector
                     @(metrics/new-collector
                        (merge config {:warmup-ms warmup-ms :metrics metrics-enabled?
-                                      :summary summary})))
+                                      :summary summary-enabled?})))
             (ui/run #(app font-path aspect scene-bounds)
                     :title "Slipstream demoscene"
                     :width width
@@ -181,11 +206,16 @@
                                 (when @(:close-requested? run)
                                   (request-native-close!)))
                     :after-render #(do
+                                     (when (nil? @initialization-ms)
+                                       (reset! initialization-ms
+                                               (/ (- (System/nanoTime) started-at) 1000000.0)))
                                      (advance-from-native-input! previous-frame scene-bounds)
-                                     (sample-metrics! metrics-enabled?)
+                                     (sample-metrics! (or metrics-enabled? summary-enabled?)
+                                                      metrics-enabled?)
                                      (maybe-capture! capture-dir capture-state))
                     :max-frames max-frames
                     :auto-quit-ms auto-quit-ms))
+          (reset! (:clean-exit? run) true)
           {:port (:port run)})))))
 
 (def usage-text
