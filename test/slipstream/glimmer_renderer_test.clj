@@ -8,6 +8,10 @@
             [slipstream.glimmer-renderer :as renderer]
             [slipstream.glimmer-resources :as resources]))
 
+(def ^:private test-font
+  (or (System/getenv "SLIPSTREAM_TEST_FONT")
+      (throw (ex-info "Set SLIPSTREAM_TEST_FONT for reactive text tests" {}))))
+
 (defn- shape-resource []
   (compiler/compile-shape
     {:path [[:rect 0.1 0.1 0.8 0.8]]
@@ -289,36 +293,112 @@
           (renderer/destroy! explicit))))
     (println @result)))
 
+(deftest reactive-text-layout-honors-align-anchor-and-advanced-paint
+  (with-fake-native [_native (fake-native)]
+    (let [context (renderer/create-context {})
+          props {:font test-font :text "AA" :size 2 :align :center :anchor :cap-top
+                 :fill {:type :linear :from [0 0] :to [1 0]
+                        :stops [[0 [1 0 0 1]] [1 [0 0 1 1]]]}
+                 :texture-width 128 :scene-path [:children 5 :text]}]
+      (binding [sg/*context* context]
+        (let [text (b/create! :text props)
+              scene (atom {:children [text]})]
+          (try
+            (let [glyphs (:resources @text)
+                  advances (map #(get-in % [:shape :advance]) glyphs)
+                  total (* 2 (reduce + advances))
+                  expected-y (* -2 (get-in (first glyphs) [:metrics :cap-height-ratio]))
+                  commands ((var-get #'sg/draw-tree) scene)]
+              (is (= 2 (count commands)))
+              (is (every? #(pos? (get-in % [:root :gradient-id])) glyphs))
+              (is (close? (- (/ total 2)) (get-in commands [0 :transform 0])))
+              (is (close? expected-y (get-in commands [0 :transform 1])))
+              (is (close? (+ (- (/ total 2)) (* 2 (first advances)))
+                          (get-in commands [1 :transform 0])))
+              (is (every? #(= 2 (:scale %)) commands)))
+            (finally
+              (resources/dispose-tree! text)))))
+      (renderer/destroy! context))))
+
+(deftest reactive-shape-scale-is-emitted-on-the-draw-command
+  (with-fake-native [_native (fake-native)]
+    (let [context (renderer/create-context {})]
+      (binding [sg/*context* context]
+        (let [shape (b/create! :shape {:path [[:rect 0 0 1 1]] :scale 2
+                                      :texture-width 128})
+              scene (atom {:children [shape]})]
+          (is (= 2 (:scale (first ((var-get #'sg/draw-tree) scene)))))
+          (resources/dispose-tree! shape)))
+      (renderer/destroy! context))))
+
+(deftest sdf-mask-replacement-and-disposal-have-exact-ownership
+  (with-fake-native [_native (fake-native)]
+    (let [context (renderer/create-context {})
+          props {:mask {:type :sdf-tile :params [0 0 1]
+                        :path [[:rect 0 0 0.5 1]] :sdf true}
+                 :texture-width 128 :scene-path [:children 0 :group]}]
+      (binding [sg/*context* context]
+        (let [group (b/create! :group props)
+              original (:mask-resource @group)
+              updated (assoc-in props [:mask :params] [0 0 2])]
+          (is (some? original))
+          (b/apply-props! :group group updated)
+          (let [replacement (:mask-resource @group)
+                command (first ((var-get #'sg/draw-tree) (atom {:children [group]})))]
+            (is (not (identical? original replacement)))
+            (is @(:released? original))
+            (is (= (renderer/native-handle replacement) (:mask-handle command)))
+            (resources/dispose-tree! group)
+            (is @(:released? replacement)))))
+      (renderer/destroy! context))))
+
 (deftest scheduled-work-runs-on-the-ui-thread-and-disposal-drops-the-queue
   (with-fake-native [native (fake-native)]
     (let [context (renderer/create-context {})
           scheduled-thread (atom nil)
+          posted (promise)
           post-disposal (atom false)
-          posted? (atom false)
+          close-posted? (atom false)
           frames (atom 0)]
       (renderer/run-loop! context
         {:max-frames 30
          :draw-tree
          (fn []
-           (let [frame (swap! frames inc)]
-             (when (= frame 1)
-               (future
-                 (renderer/schedule! context
-                   #(reset! scheduled-thread (Thread/currentThread)))))
-             (when (and @scheduled-thread (not @posted?))
-               (renderer/schedule! context #(reset! post-disposal true))
-               (reset! posted? true)
-               (swap! (:close native) conj (:handle context)))
-             (when (> frame 25)
-               (swap! (:close native) conj (:handle context)))
-             []))})
+           (when (= 1 (swap! frames inc))
+             (future
+               (renderer/schedule! context
+                 #(reset! scheduled-thread (Thread/currentThread)))
+               (deliver posted true)))
+           (when (and @scheduled-thread (not @close-posted?))
+             (renderer/schedule! context #(reset! post-disposal true))
+             (reset! close-posted? true)
+             (swap! (:close native) conj (:handle context)))
+           (when (> @frames 25)
+             (swap! (:close native) conj (:handle context)))
+           [])})
+      (is (true? (deref posted 1000 false)))
       (is (some? @scheduled-thread))
       (is (identical? @scheduled-thread (Thread/currentThread)))
-      (is (true? @posted?))
+      (is (true? @close-posted?))
       (is (false? @post-disposal))
       (renderer/destroy! context)
       (renderer/schedule! context #(reset! post-disposal true))
       (is (false? @post-disposal)))))
+
+(deftest terminal-loop-transition-drops-late-scheduled-work
+  (with-fake-native [_native (fake-native)]
+    (let [context (renderer/create-context {})
+          late-work (atom false)
+          finished (promise)]
+      (renderer/run-loop! context
+        {:max-frames 1
+         :draw-tree []
+         :after-render #(renderer/schedule! context #(reset! late-work true))})
+      (deliver finished true)
+      (is (true? (deref finished 1000 false)))
+      (renderer/schedule! context #(reset! late-work true))
+      (is (false? @late-work))
+      (renderer/destroy! context))))
 
 (deftest nested-scheduled-work-runs-on-the-next-frame
   (with-fake-native [_native (fake-native)]
@@ -349,6 +429,8 @@
                     (fn [_] (swap! calls conj :create) :headless)
                     renderer/run-loop!
                     (fn [_ _] (swap! calls conj :loop))
+                    renderer/stop-scheduling!
+                    (fn [_] nil)
                     renderer/destroy!
                     (fn [_] (swap! calls conj :destroy))]
         ((:run-lifecycle (b/current)) {}
@@ -357,6 +439,16 @@
            :abandon! (fn [] (swap! calls conj :abandon))})))
     (is (= [:create :acquire :mount :loop :unmount :release :destroy]
            @calls))))
+
+(deftest lifecycle-drops-work-scheduled-during-unmount
+  (with-fake-native [_native (fake-native)]
+    (let [ran (atom false)]
+      (with-redefs [renderer/run-loop! (fn [_ _] nil)]
+        ((:run-lifecycle (b/current)) {}
+          {:mount! (fn [_ _] nil)
+           :unmount! #(b/schedule (fn [] (reset! ran true)))
+           :abandon! (fn [] nil)}))
+      (is (false? @ran)))))
 
 (defn gui-smoke! []
   (let [cpu (shape-resource)

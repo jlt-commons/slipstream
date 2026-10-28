@@ -34,6 +34,7 @@
     (is (= (compiler/geometry-key flat)
            (compiler/geometry-key
              (assoc flat :color [0 1 0 1] :at [9 8] :transform [4 5 6]
+                         :scale 2 :scene-path [:children 3 :shape]
                          :visible false :effect-id 7 :effect-param 0.5
                          :on-click (fn [_] :changed)
                          :fill [0 0 1 1]))))
@@ -42,7 +43,6 @@
                      (assoc flat :join :round)
                      (assoc flat :cap :square)
                      (assoc flat :miter-limit 8)
-                     (assoc flat :scale 2)
                      (assoc flat :origin :centered)
                      (assoc flat :splits-x [0.5])
                      (assoc flat :splits-y [0.25 0.75])
@@ -110,7 +110,7 @@
   (let [resource (compiler/compile-shape (shape-props))
         old-props (assoc (shape-props) :color [1 0 0 1] :at [0 0])
         node (widget :shape old-props resource)
-        new-props (assoc old-props :color [0 1 0 1] :at [10 20]
+        new-props (assoc old-props :color [0 1 0 1] :at [10 20] :scale 2
                          :children [[:shape {}] [:text {}]])]
     (try
       (let [result (compiler/update-node! node old-props new-props)]
@@ -238,6 +238,83 @@
         (resources/release! plain)
         (resources/release! duplicate)
         (resources/release! masked)))))
+
+(deftest reactive-scale-is-layer-only-and-preserves-unit-geometry
+  (let [props (assoc (shape-props) :scale 2 :scene-path [:children 1 :shape])
+        resource (compiler/compile-shape props)
+        vertices (:vertices (:mesh resource))]
+    (try
+      (is (= (compiler/geometry-key (shape-props)) (compiler/geometry-key props)))
+      (is (< (Math/abs (- (aget vertices 20) 1.01)) 0.00001))
+      (is (= 1.0 (get-in resource [:root :scale])))
+      (finally
+        (resources/release! resource)))))
+
+(deftest raw-reactive-paint-ids-are-rejected-with-authored-paths
+  (doseq [field [:gradient-id :pattern-id]]
+    (let [error (try
+                  (compiler/compile-shape (assoc (shape-props) field 7
+                                                 :scene-path [:children 2 :shape]))
+                  nil
+                  (catch Throwable error error))]
+      (is (some? error))
+      (is (= [:children 2 :shape field] (:scene-path (ex-data error))))
+      (is (re-find #"raw reactive" (ex-message error))))))
+
+(deftest glyphs-preserve-metrics-and-missing-glyphs-report-the-text-path
+  (let [resource (compiler/compile-glyph test-font 65
+                   {:texture-width 128 :scene-path [:children 4 :text]})]
+    (try
+      (is (pos? (get-in resource [:metrics :cap-height-ratio])))
+      (is (pos? (get-in resource [:shape :advance])))
+      (finally
+        (resources/release! resource))))
+  (let [error (try
+                (compiler/compile-glyph test-font 0x10ffff
+                  {:texture-width 128 :scene-path [:children 4 :text]})
+                nil
+                (catch Throwable error error))]
+    (is (some? error))
+    (is (= [:children 4 :text :font] (:scene-path (ex-data error))))
+    (is (re-find #"glyph" (ex-message error)))))
+
+(deftest advanced-text-paint-participates-in-glyph-resource-identity
+  (let [paint (fn [last-color]
+                {:type :linear :from [0 0] :to [1 0]
+                 :stops [[0 [1 0 0 1]] [1 last-color]]})
+        first-resource (compiler/compile-glyph test-font 65
+                         {:texture-width 128 :fill (paint [0 0 1 1])})
+        second-resource (compiler/compile-glyph test-font 65
+                          {:texture-width 128 :fill (paint [0 1 0 1])})]
+    (try
+      (is (pos? (get-in first-resource [:root :gradient-id])))
+      (is (not (identical? first-resource second-resource)))
+      (finally
+        (resources/release! first-resource)
+        (resources/release! second-resource)))))
+
+(deftest reactive-text-paint-changes-replace-only-the-glyph-resource
+  (doseq [kind [:gradient :pattern]]
+    (let [paint (fn [changed?]
+                  (if (= :gradient kind)
+                    {:type :linear :from [0 0] :to [1 0]
+                     :stops [[0 [1 0 0 1]] [1 (if changed? [0 1 0 1] [0 0 1 1])]]}
+                    {:type :pattern :tile :tile
+                     :tile-path [[:rect 0 0 (if changed? 0.5 0.25) 1]]
+                     :cell [0 0 1 1] :repeat-x :repeat :repeat-y :repeat}))
+          old-props {:font test-font :text "A" :fill (paint false) :texture-width 128}
+          old-resource (compiler/compile-glyph test-font 65 old-props)
+          node (atom {:tag :text :props old-props :resource nil
+                      :resources [old-resource] :children [] :disposed? false})
+          new-props (assoc old-props :fill (paint true))]
+      (let [result (compiler/update-node! node old-props new-props)
+            replacement (first (:resources @node))
+            paint-field (if (= :gradient kind) :gradient-id :pattern-id)]
+        (is (not (identical? old-resource replacement)))
+        (is (= [[replacement] [old-resource]] (changed-references result)))
+        (is (pos? (get-in replacement [:root paint-field])))
+        (is @(:destroyed? (:atlas old-resource)))
+        (resources/dispose-tree! node)))))
 
 (deftest failed-shape-replacement-keeps-the-last-good-resource
   (let [old-props (shape-props)

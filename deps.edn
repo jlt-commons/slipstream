@@ -1,11 +1,17 @@
 {:paths ["src" "example"]
- :deps {jolt-lang/glimmer {:local/root "/Users/yogthos/src/jolt-lang/glimmer"}}
+ :deps {io.github.jolt-lang/glimmer
+        {:git/url "https://github.com/jolt-lang/glimmer.git"
+         :git/tag "v0.1.7"
+         :git/sha "22350c4d047b05359a16b756b20f38ecb391a63b"}}
 
  :jolt/native [{:name "slipstream"
                 :darwin ["native/libslipstream.dylib"]
                 :linux ["native/libslipstream.so"]}]
 
- :aliases {:test {:extra-paths ["test" "example"]
+ :aliases {:dev {:override-deps
+                 {io.github.jolt-lang/glimmer
+                  {:local/root "/Users/yogthos/src/jolt-lang/glimmer"}}}
+           :test {:extra-paths ["test" "example"]
                   :main-opts ["-m" "slipstream.test-runner"]}
            :parity {:extra-paths ["test" "example"]
                     :main-opts ["-m" "slipstream.parity-test"]}}

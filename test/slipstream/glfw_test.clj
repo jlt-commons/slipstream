@@ -60,6 +60,11 @@
       (is (some? error))
       (is (re-find #"No geometry produced" (:native-error (ex-data error)))))))
 
+(deftest compatibility-renderer-supports-nondefault-atlas-width
+  (glfw/run! [:scene {:texture-width 256}
+              [:shape {} [:rect 0 0 1 1]]]
+             {:max-frames 1}))
+
 (deftest renderer-native-symbols-resolve-and-reject-a-null-atlas
   (ffi/with-layout [view f/layers-view-layout]
     (is (not (zero? (f/glfw-run 0 view 0 32 0 0))))

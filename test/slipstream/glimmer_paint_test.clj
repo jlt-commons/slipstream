@@ -151,7 +151,12 @@
           repeated (upload-paint context (pattern :repeat 0.25 [1 0 0 1 0 0]))
           reflected (upload-paint context (pattern :reflect 0.25 [2 0 0 1 0 0]))
           transformed (upload-paint context (pattern :repeat 0.25 [2 0 0 1 0 0]))
-          wider-tile (upload-paint context (pattern :repeat 0.5 [1 0 0 1 0 0]))]
+          wider-tile (upload-paint context (pattern :repeat 0.5 [1 0 0 1 0 0]))
+          reflected-y (upload-paint context
+                        {:type :pattern :tile :tile
+                         :tile-path [[:rect 0 0 1 0.25]]
+                         :cell [0 0 1 1] :transform [1 0 0 2 0 -0.5]
+                         :repeat-x :repeat :repeat-y :reflect})]
       (try
         (let [repeat-frame (capture context repeated 1)
               reflect-frame (capture context reflected 1)]
@@ -164,8 +169,13 @@
         (check-pixel (capture context transformed 1) [4 32] [255 255 255 255])
         (check-pixel (capture context transformed 1) [24 32] [38 38 38 255])
         (check-pixel (capture context wider-tile 1) [24 32] [255 255 255 255])
+        (let [frame (capture context reflected-y 1)]
+          (check-pixel frame [32 4] [38 38 38 255])
+          (check-pixel frame [32 52] [255 255 255 255])
+          (check-pixel frame [32 24] [38 38 38 255])
+          (check-pixel frame [32 60] [38 38 38 255]))
         (finally
-          (doseq [resource [repeated reflected transformed wider-tile]]
+          (doseq [resource [repeated reflected transformed wider-tile reflected-y]]
             (release-paint context resource)))))))
 
 (deftest stop-changes-invalidate-only-dependent-paint-resources

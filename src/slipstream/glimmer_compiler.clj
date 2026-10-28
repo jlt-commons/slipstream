@@ -3,8 +3,9 @@
             [slipstream.glimmer-resources :as resources]))
 
 (def ^:private layer-only-keys
-  #{:id :key :tag :children :at :transform :color :visible :visibility :opacity
-    :effect :effect-id :effect-param :gradient-id :pattern-id :bleed :draw-mode :blend-mode})
+  #{:id :key :tag :children :at :transform :scale :color :visible :visibility :opacity
+    :scene-path :effect :effect-id :effect-param :gradient-id :pattern-id :bleed
+    :draw-mode :blend-mode})
 
 (defn- layer-only-prop? [k]
   (or (contains? layer-only-keys k)
@@ -28,6 +29,24 @@
 
 (defn- canonical-paint [paint]
   (if (flat-color? paint) :flat-color paint))
+
+(defn- authored-path [node fallback]
+  (vec (or (:scene-path node) [fallback])))
+
+(defn validate-paint-references! [node]
+  (doseq [field [:gradient-id :pattern-id]]
+    (when (contains? node field)
+      (throw (ex-info "raw reactive paint IDs are not resource references; use :fill, :paint, or :color"
+                      {:scene-path (conj (authored-path node (:tag node)) field)
+                       field (get node field)})))))
+
+(defn- add-error-path [error path]
+  (if (and (instance? clojure.lang.ExceptionInfo error)
+           (:scene-path (ex-data error)))
+    error
+    (ex-info (or (ex-message error) "reactive resource compilation failed")
+             (assoc (or (ex-data error) {}) :scene-path path)
+             error)))
 
 (defn geometry-key
   [node]
@@ -107,9 +126,11 @@
                                    (catch Throwable error
                                      (throw (ex-info (.getMessage error)
                                                (assoc (or (ex-data error) {})
-                                                      :scene-path [:shape (if stroke? :paint :fill)]
-                                                      :paint paint-value)))))
-                           opts {:key :node :scale (get node :scale 1)
+                                                      :scene-path (conj (authored-path node :shape)
+                                                                        (if stroke? :paint :fill))
+                                                      :paint paint-value)
+                                               error))))
+                           opts {:key :node :scale 1
                                  :origin (get node :origin :default)
                                  :join (get node :join :miter) :cap (get node :cap :butt)
                                  :miter-limit (get node :miter-limit 4)
@@ -124,9 +145,13 @@
 
 (defn compile-shape
   [node]
-  (let [node (node-props node)
-        cache-key [:shape (geometry-key node)]]
-    (resources/acquire-cpu! cache-key #(build-shape node cache-key))))
+  (let [node (node-props node)]
+    (validate-paint-references! node)
+    (try
+      (let [cache-key [:shape (geometry-key node)]]
+        (resources/acquire-cpu! cache-key #(build-shape node cache-key)))
+      (catch Throwable error
+        (throw (add-error-path error (authored-path node :shape)))))))
 
 (defn- font-options [font opts]
   (merge (if (map? font) (select-keys font [:uniform :mask]) {})
@@ -135,9 +160,17 @@
 (defn- font-path [font]
   (if (map? font) (:path font) font))
 
+(defn- text-paint [opts]
+  (get opts :fill (get opts :paint (get opts :color [0 0 0 1]))))
+
+(defn- resolved-paint [opts paint]
+  (if (keyword? paint) (get-in opts [:paints paint] paint) paint))
+
 (defn- glyph-cache-key [font codepoint opts]
-  [:glyph (immutable {:font (font-path font) :codepoint codepoint
-                      :options (font-options font opts)})])
+  (let [paint (resolved-paint opts (text-paint opts))]
+    [:glyph (immutable (cond-> {:font (font-path font) :codepoint codepoint
+                                :options (font-options font opts)}
+                         (not (flat-color? paint)) (assoc :paint paint)))]))
 
 (defn- codepoint-string [codepoint]
   (String. (Character/toChars codepoint)))
@@ -147,25 +180,60 @@
         atlas (core/make-atlas options)]
     (try
       (let [{:keys [metrics]} (core/load-font! atlas (font-path font) [codepoint] options)
+            paint-value (text-paint opts)
+            paint (core/with-canvas [canvas atlas {}]
+                    (try
+                      (native-paint atlas canvas opts paint-value)
+                      (catch Throwable error
+                        (throw (add-error-path
+                                 error (conj (authored-path opts :text) :fill))))))
             root (first (core/text-layers atlas (codepoint-string codepoint)
                                           {:font-size 1 :position [0 0]
-                                           :color [0 0 0 1] :metrics metrics
-                                           :mask (get options :mask 0)}))]
+                                           :color (get paint :color [1 1 1 1])
+                                           :metrics metrics
+                                           :mask (get options :mask 0)}))
+            root (merge root (select-keys paint [:gradient-id :pattern-id]))
+            shape (core/shape atlas (:key root))]
+        (when-not shape
+          (throw (ex-info "font is missing a required glyph"
+                          {:scene-path (conj (authored-path opts :text) :font)
+                           :font (font-path font) :codepoint codepoint})))
         (core/build! atlas)
-        (resources/->CPUResource atlas root (core/mesh atlas [root]) cache-key (atom 1)))
+        (assoc (resources/->CPUResource atlas root (core/mesh atlas [root]) cache-key (atom 1))
+               :metrics metrics :shape shape))
       (catch Throwable error
         (destroy-after-failure atlas error)))))
 
 (defn compile-glyph
   [font codepoint opts]
-  (let [cache-key (glyph-cache-key font codepoint opts)]
-    (resources/acquire-cpu! cache-key #(build-glyph font codepoint opts cache-key))))
+  (validate-paint-references! opts)
+  (when-not (and (integer? codepoint) (<= 0 codepoint 0x10ffff)
+                 (not (<= 0xd800 codepoint 0xdfff)))
+    (throw (ex-info "glyph codepoint must be a Unicode scalar value"
+                    {:scene-path (conj (authored-path opts :text) :font)
+                     :codepoint codepoint})))
+  (try
+    (let [cache-key (glyph-cache-key font codepoint opts)]
+      (resources/acquire-cpu! cache-key #(build-glyph font codepoint opts cache-key)))
+    (catch Throwable error
+      (throw (add-error-path error (authored-path opts :text))))))
 
 (defn text-codepoints [props]
-  (let [text (str (:text props))]
-    (if (or (:compatibility props) (:byte-wise props) (:byte-wise? props))
-      (mapv #(bit-and (int %) 0xff) (.getBytes text "UTF-8"))
-      (mapv int text))))
+  (doseq [field [:compatibility :byte-wise :byte-wise?]]
+    (when (and (contains? props field) (not (boolean? (get props field))))
+      (throw (ex-info (str (name field) " must be boolean")
+                      {:scene-path (conj (authored-path props :text) field)
+                       field (get props field)}))))
+  (let [text (str (:text props))
+        codepoints (if (or (:compatibility props) (:byte-wise props) (:byte-wise? props))
+                     (mapv #(bit-and (int %) 0xff) (.getBytes text "UTF-8"))
+                     (mapv int text))]
+    (doseq [codepoint codepoints]
+      (when (<= 0xd800 codepoint 0xdfff)
+        (throw (ex-info "text contains a Unicode surrogate instead of a scalar value"
+                        {:scene-path (authored-path props :text)
+                         :codepoint codepoint}))))
+    codepoints))
 
 (defn- update-text! [widget _old-props new-props acquire-glyph]
   (let [old-resources (vec (:resources @widget))

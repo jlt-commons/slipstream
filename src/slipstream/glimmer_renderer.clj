@@ -4,7 +4,7 @@
             [slipstream.ffi :as f]
             [slipstream.glimmer-resources :as resources]))
 
-(defrecord GLContext [handle options destroyed? cache work-queue running?])
+(defrecord GLContext [handle options destroyed? cache work-queue running? accepting-work?])
 
 (defn- native-failure
   ([op] (native-failure op {}))
@@ -67,13 +67,19 @@
       (let [handle (f/gl-context-create opts)]
         (when (or (nil? handle) (zero? handle))
           (native-failure :create-context))
-        (->GLContext handle options (atom false) (atom {}) (atom []) (atom false))))))
+        (->GLContext handle options (atom false) (atom {}) (atom []) (atom false) (atom true))))))
+
+(defn stop-scheduling! [context]
+  (locking (:work-queue context)
+    (reset! (:accepting-work? context) false)
+    (reset! (:running? context) false)
+    (reset! (:work-queue context) []))
+  nil)
 
 (defn destroy! [context]
   (when (and (instance? GLContext context)
              (compare-and-set! (:destroyed? context) false true))
-    (reset! (:running? context) false)
-    (reset! (:work-queue context) [])
+    (stop-scheduling! context)
     (try
       (when-not (zero? (f/gl-context-destroy (:handle context)))
         (native-failure :destroy!))
@@ -143,6 +149,7 @@
      :effect (if (or begin? end?) 0 (get command :effect 0))
      :transform (mapv double (into (vec transform) (repeat (- 3 (count transform)) 0)))
      :color (mapv double color)
+     :scene-path (:scene-path command)
      :scale (double (get command :scale 1))
      :effect-id (get command :effect-id 0)
      :effect-param (double (get command :effect-param 0))
@@ -159,18 +166,19 @@
                                      (repeat (- 6 (count (mask-parameters mask))) 0)))}))
 
 (defn- validate-paint! [context index command]
-  (when (zero? (:kind command))
-    (when (and (not (zero? (:effect-id command))) (zero? (:effect command)))
-      (throw (ex-info "effect ID requires a custom effect program"
-                      {:op :render! :scene-path [index :effect-id]
-                       :effect-id (:effect-id command)})))
-    (let [expected (paint-texture! context (:handle command))
-          actual (:paint command)]
-      (when-not (= expected actual)
-        (throw (ex-info "draw command paint reference does not match its resource"
-                        {:op :render! :scene-path [index :paint]
-                         :expected-paint expected :actual-paint actual
-                         :native-error "advanced paint reference is missing or invalid"}))))))
+  (let [scene-path (or (:scene-path command) [index])]
+    (when (zero? (:kind command))
+      (when (and (not (zero? (:effect-id command))) (zero? (:effect command)))
+        (throw (ex-info "effect ID requires a custom effect program"
+                        {:op :render! :scene-path (conj scene-path :effect-id)
+                         :effect-id (:effect-id command)})))
+      (let [expected (paint-texture! context (:handle command))
+            actual (:paint command)]
+        (when-not (= expected actual)
+          (throw (ex-info "draw command paint reference does not match its resource"
+                          {:op :render! :scene-path (conj scene-path :paint)
+                           :expected-paint expected :actual-paint actual
+                           :native-error "advanced paint reference is missing or invalid"})))))))
 
 (defn render! [context draw-tree]
   (let [handle (context-handle context :render!)
@@ -212,8 +220,10 @@
               field (if (and (< command-index (count commands))
                              (not (zero? (:effect (nth commands command-index)))))
                       :effect
-                      :render)]
-          (native-failure :render! {:scene-path [command-index field]})))))
+                      :render)
+              scene-path (or (:scene-path (nth commands command-index nil))
+                             [command-index])]
+          (native-failure :render! {:scene-path (conj scene-path field)})))))
   nil)
 
 (defn poll! [context]
@@ -233,20 +243,26 @@
   nil)
 
 (defn schedule! [context work]
-  (cond
-    @(:destroyed? context) nil
-    @(:running? context) (swap! (:work-queue context) conj work)
-    :else (work))
+  (let [run-now? (locking (:work-queue context)
+                   (cond
+                     (or @(:destroyed? context) (not @(:accepting-work? context))) false
+                     @(:running? context) (do (swap! (:work-queue context) conj work) false)
+                     :else true))]
+    (when run-now? (work)))
   nil)
 
 (defn- drain-scheduled! [context]
-  (let [works @(:work-queue context)]
-    (reset! (:work-queue context) [])
+  (let [works (locking (:work-queue context)
+                (let [works @(:work-queue context)]
+                  (reset! (:work-queue context) [])
+                  works))]
     (doseq [work works]
       (work))))
 
 (defn run-loop! [context {:keys [draw-tree max-frames auto-quit-ms on-start after-render]
                           :or {draw-tree []}}]
+  (when-not @(:accepting-work? context)
+    (throw (ex-info "GL context scheduling is terminal" {:op :run-loop!})))
   (let [started (System/currentTimeMillis)]
     (reset! (:running? context) true)
     (try
@@ -266,8 +282,7 @@
                 (swap-buffers! context)
                 (recur (inc frames)))))))
       (finally
-        (reset! (:running? context) false)
-        (reset! (:work-queue context) [])))))
+        (stop-scheduling! context)))))
 
 (declare release-resource!)
 
@@ -317,6 +332,8 @@
        :root (:root cpu-resource)
        :atlas (:atlas cpu-resource)
        :mesh (:mesh cpu-resource)
+       :metrics (:metrics cpu-resource)
+       :shape (:shape cpu-resource)
        :released? (atom false)})))
 
 (defn native-handle [resource]

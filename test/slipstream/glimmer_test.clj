@@ -48,7 +48,7 @@
             root (ui/mount scene :scene
                            [:group {:id :root}
                             [:shape {:path :rectangle :color [1 0 0 1]}]])]
-        (is (= #{:tag :props :children :context :resource :disposed?}
+        (is (= #{:tag :props :scene-path :children :context :resource :disposed?}
                (set (keys @scene))))
         (is (= [[:acquire :headless [:scene {}] {} 1]
                 [:acquire :headless [:group {:id :root}] {:id :root} 2]
@@ -175,6 +175,16 @@
         (ui/unmount! root scene :scene)
         (resources/dispose-tree! scene)
         (is (= [5 3 4 2 1] (release-ids calls)))))))
+
+(deftest every-widget-rejects-raw-paint-ids-with-its-authored-path
+  (binding [sg/*factory* (fake-factory (atom []))
+            sg/*context* :headless]
+    (let [error (try
+                  (b/create! :group {:gradient-id 3 :scene-path [:children 8 :group]})
+                  nil
+                  (catch Throwable error error))]
+      (is (some? error))
+      (is (= [:children 8 :group :gradient-id] (:scene-path (ex-data error)))))))
 
 (deftest failed-mount-releases-the-partially-built-tree
   (let [calls (atom [])]

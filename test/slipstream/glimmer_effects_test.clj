@@ -300,6 +300,23 @@
              (assoc base :effect {:id 9 :param 0.5 :fragment-hook inside-fragment}
                     :effect-id 8 :effect-param 0.25 :bleed 0.2))))))
 
+(deftest authored-widget-path-reaches-effect-compilation
+  (let [seen (atom nil)
+        shape (atom {:tag :shape
+                     :props {:scene-path [:children 7 :shape]
+                             :effect {:id 9 :fragment-hook "broken"}}
+                     :resource {:handle {:native 1 :paint 0}
+                                :root {:color [1 0 0 1]}}})
+        scene (atom {:children [shape]})]
+    (with-redefs [slipstream.glimmer-effects/effect-program!
+                  (fn [_ data]
+                    (reset! seen (:scene-path data))
+                    (throw (ex-info "injected effect failure"
+                                    {:scene-path (:scene-path data)})))]
+      (is (thrown-with-msg? Exception #"injected effect failure"
+            ((var-get #'sg/draw-tree) scene))))
+    (is (= [:children 7 :shape :effect] @seen))))
+
 (deftest offscreen-group-opacity-is-applied-only-at-the-composite-boundary
   (let [shape (atom {:tag :shape :props {:fill [1 0 0 1]}
                      :resource {:handle {:native 1 :paint 0}

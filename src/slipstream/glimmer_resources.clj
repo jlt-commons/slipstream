@@ -61,7 +61,8 @@
     (doseq [child (:children @widget)]
       (dispose-tree! child))
     (release! (:resource @widget))
+    (release! (:mask-resource @widget))
     (doseq [resource (:resources @widget)]
       (release! resource))
-    (swap! widget assoc :resource nil :resources nil))
+    (swap! widget assoc :resource nil :mask-resource nil :resources nil))
   nil)

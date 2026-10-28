@@ -70,13 +70,9 @@ flat in vec4 v_shapeData; // bandTexX/Y, bandMaxX/Y
 
 uniform sampler2D u_curveTexture;
 uniform usampler2D u_bandTexture;
+uniform int u_textureWidth;
 
 out vec4 fragColor;
-
-// Hardcoded to log2(512) = 9, matching the default Atlas() constructor.
-// If using Atlas(uint32_t texWidth), replace with: int(log2(atlas.getTextureWidth()))
-// and pass as a uniform rather than a define.
-#define TEX_WIDTH 9
 
 // Must match slughorn::Atlas::INDIRECTION_SIZE
 #define SLUG_INDIRECTION_SIZE 32
@@ -136,8 +132,8 @@ vec2 slug_SolveVertPoly(vec4 p12, vec2 p3) {
 
 ivec2 slug_CalcBandLoc(ivec2 glyphLoc, uint offset) {
 	ivec2 bandLoc = ivec2(glyphLoc.x + int(offset), glyphLoc.y);
-	bandLoc.y += bandLoc.x >> TEX_WIDTH;
-	bandLoc.x &= (1 << TEX_WIDTH) - 1;
+	bandLoc.y += bandLoc.x / u_textureWidth;
+	bandLoc.x %= u_textureWidth;
 	return bandLoc;
 }
 
@@ -148,8 +144,8 @@ ivec2 slug_CalcBandLoc(ivec2 glyphLoc, uint offset) {
 // second texel CAN legitimately land at the start of the next row.
 ivec2 slug_CalcCurveLoc(ivec2 curveLoc, int offset) {
 	ivec2 loc = ivec2(curveLoc.x + offset, curveLoc.y);
-	loc.y += loc.x >> TEX_WIDTH;
-	loc.x &= (1 << TEX_WIDTH) - 1;
+	loc.y += loc.x / u_textureWidth;
+	loc.x %= u_textureWidth;
 	return loc;
 }
 
@@ -749,9 +745,11 @@ int ss_glfw_run(
 		const GLint u_time = glGetUniformLocation(resources.program, "u_time");
 		const GLint u_curveTexture = glGetUniformLocation(resources.program, "u_curveTexture");
 		const GLint u_bandTexture = glGetUniformLocation(resources.program, "u_bandTexture");
+		const GLint u_textureWidth = glGetUniformLocation(resources.program, "u_textureWidth");
 		glUseProgram(resources.program);
 		glUniform1i(u_curveTexture, 0);
 		glUniform1i(u_bandTexture, 1);
+		glUniform1i(u_textureWidth, static_cast<GLint>(atlas->getBandTextureData().width));
 		glUseProgram(0);
 
 		glGenVertexArrays(1, &resources.vao);

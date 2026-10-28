@@ -651,7 +651,8 @@ int ss_gl_render(void* handle, const SSGLDrawCommand* commands, uint64_t count) 
     int width = 0;
     int height = 0;
     glfwGetFramebufferSize(context->window, &width, &height);
-    float aspect = height > 0 ? static_cast<float>(width) / height : 1.0f;
+    if(width == 0 || height == 0) return 0;
+    float aspect = static_cast<float>(width) / height;
     float bounds[4] = {0, aspect, 0, 1};
     if(context->has_bounds) std::copy(context->bounds, context->bounds + 4, bounds);
     if(bounds[0] == bounds[1] || bounds[2] == bounds[3])
@@ -769,7 +770,7 @@ int ss_gl_swap(void* handle) noexcept {
 int ss_gl_test_resize(void* handle, int32_t width, int32_t height) noexcept {
   ss_try(1,
     auto* context = require_context(handle);
-    if(width <= 0 || height <= 0) throw std::invalid_argument("window size must be positive");
+    if(width < 0 || height < 0) throw std::invalid_argument("window size must not be negative");
     glfwSetWindowSize(context->window, width, height);
     glfwPollEvents();
     return 0;

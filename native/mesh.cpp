@@ -30,12 +30,17 @@ void* ss_mesh_new(void* atlas, const SSLayer* layers, uint64_t layer_count) noex
     if(layer_count > 0 && !layers) throw std::invalid_argument("layers are null");
     const auto* source = slipstream::require_atlas(atlas);
     auto mesh = std::make_unique<OwnedMesh>();
-    unsigned short base = 0;
+    size_t base = 0;
 
     for(uint64_t layer_index = 0; layer_index < layer_count; ++layer_index) {
       const SSLayer& layer = layers[layer_index];
       const auto shape = source->getShape(mesh_key(&layer.key));
       if(!shape) continue;
+      if(base + 4 > 65536) {
+        throw std::invalid_argument(
+          "mesh exceeds the 65536-vertex unsigned-short index limit at layer " +
+          std::to_string(layer_index) + "; split the layers into smaller meshes");
+      }
 
       const slughorn::Transform transform = {
         layer.transform.x, layer.transform.y, layer.transform.z

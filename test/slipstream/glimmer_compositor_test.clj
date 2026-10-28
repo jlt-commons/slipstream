@@ -2,6 +2,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [jolt.ffi :as ffi]
             [slipstream.ffi :as f]
+            [glimmer.core :as ui]
+            [slipstream.glimmer :as sg]
             [slipstream.glimmer-compiler :as compiler]
             [slipstream.glimmer-renderer :as renderer]
             [slipstream.glimmer-resources :as resources]))
@@ -242,6 +244,20 @@
           (release context source)
           (release context sdf))))))
 
+(deftest mounted-reactive-sdf-tile-mask-acquires-and-renders-its-resource
+  (let [frame (atom nil)]
+    (ui/run
+      (fn []
+        [:group {:mask {:type :sdf-tile :params [0 0 1]
+                        :path [[:rect 0 0 0.5 1]] :sdf true}}
+         [:shape {:path [[:rect 0 0 1 1]] :fill [0 1 0 1]
+                  :texture-width 128}]])
+      :title "reactive SDF mask" :width 64 :height 64 :bounds [0 1 0 1]
+      :visible false :max-frames 1
+      :after-render #(reset! frame (renderer/capture! (sg/current-context))))
+    (check-pixel @frame [16 32] [0 255 0 255])
+    (check-pixel @frame [48 32] background)))
+
 (deftest nested-groups-opacity-and-empty-groups-are-isolated
   (with-context [context]
     (let [destination (upload context [0 0 1 1])
@@ -378,6 +394,23 @@
             (check-pixel frame [32 32] [255 0 0 255])
             (check-pixel frame [4 32] background)
             (is (zero? (:framebuffer-binding after)))
+            (is (= (:resource-uploads before) (:resource-uploads after)))
+            (is (= (:shader-compilations before) (:shader-compilations after)))))
+        (finally
+          (release context source))))))
+
+(deftest zero-sized-framebuffer-skips-rendering-and-resumes-without-rebuild
+  (with-context [context]
+    (let [source (upload context [1 0 0 1])
+          commands [(draw source)]]
+      (try
+        (capture context commands)
+        (let [before (frame-state context)]
+          (resize! context 0 0)
+          (renderer/render! context commands)
+          (resize! context 64 64)
+          (check-pixel (capture context commands) [32 32] [255 0 0 255])
+          (let [after (frame-state context)]
             (is (= (:resource-uploads before) (:resource-uploads after)))
             (is (= (:shader-compilations before) (:shader-compilations after)))))
         (finally

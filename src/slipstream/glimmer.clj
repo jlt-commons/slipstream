@@ -1,6 +1,5 @@
 (ns slipstream.glimmer
   (:require [glimmer.backend :as b]
-            [slipstream.core :as core]
             [slipstream.glimmer-compiler :as compiler]
             [slipstream.glimmer-effects :as effects]
             [slipstream.glimmer-renderer :as renderer]
@@ -17,7 +16,7 @@
 (defonce ^:private active-context (atom nil))
 
 (def ^:private layer-props
-  #{:at :transform :scale :color :visible :visibility :opacity
+  #{:at :transform :scale :color :visible :visibility :opacity :scene-path
     :effect :effect-id :effect-param :gradient-id :pattern-id :bleed
     :draw-mode :blend-mode})
 
@@ -31,12 +30,30 @@
 (defn- native-context? [context]
   (instance? slipstream.glimmer_renderer.GLContext context))
 
+(defn- sdf-mask? [props]
+  (= :sdf-tile (get-in props [:mask :type])))
+
+(defn- mask-node [props]
+  (when (sdf-mask? props)
+    (let [mask (:mask props)
+          path (or (:path mask) (:tile-path mask))]
+      (when-not (sequential? path)
+        (throw (ex-info "SDF tile mask requires a :path or :tile-path"
+                        {:scene-path (conj (vec (or (:scene-path props) [(:tag props)]))
+                                           :mask :path)})))
+      (merge (select-keys props [:texture-width :curve-precision :sdf-type :sdf-range])
+             mask
+             {:path path :sdf true
+              :scene-path (conj (vec (or (:scene-path props) [(:tag props)])) :mask)}))))
+
 (defn- native-acquisitions [context]
   {:shape (fn [props]
             (renderer/acquire-resource! context (compiler/compile-shape props)))
    :glyph (fn [font codepoint props]
             (renderer/acquire-resource! context
-              (compiler/compile-glyph font codepoint props)))})
+              (compiler/compile-glyph font codepoint props)))
+   :mask (fn [props]
+           (renderer/acquire-resource! context (compiler/compile-shape (mask-node props))))})
 
 (defn- acquire-text! [context props]
   (let [acquire (:glyph (native-acquisitions context))
@@ -53,30 +70,51 @@
         (throw error)))))
 
 (defn- create-native! [tag props]
-  (let [widget {:tag tag :props props :children [] :context *context*
-                :resource nil :disposed? false}]
+  (let [widget {:tag tag :props props :scene-path (or (:scene-path props) [tag])
+                :children [] :context *context* :resource nil :mask-resource nil
+                :disposed? false}]
     (atom
       (case tag
         :text (assoc widget :resources (acquire-text! *context* props))
         (:shape :path) (assoc widget :resource
                          ((:shape (native-acquisitions *context*)) props))
+        (:group :composite :scene) (assoc widget :mask-resource
+                                    (when (sdf-mask? props)
+                                      ((:mask (native-acquisitions *context*)) props)))
         widget))))
 
 (defn- create! [tag props]
+  (compiler/validate-paint-references! (assoc props :tag tag))
   (if (native-context? *context*)
     (create-native! tag props)
     (atom {:tag tag
            :props props
+           :scene-path (or (:scene-path props) [tag])
            :children []
            :context *context*
            :resource (resources/acquire! *factory* *context* (cache-key tag props) props)
            :disposed? false})))
 
+(defn- update-native-group! [widget old-props new-props context]
+  (let [old-mask (mask-node old-props)
+        new-mask (mask-node new-props)]
+    (if (= (compiler/geometry-key old-mask) (compiler/geometry-key new-mask))
+      (swap! widget assoc :props new-props :scene-path (or (:scene-path new-props) [:group]))
+      (let [old-resource (:mask-resource @widget)
+            replacement (when new-mask
+                          ((:mask (native-acquisitions context)) new-props))]
+        (swap! widget assoc :props new-props :mask-resource replacement
+               :scene-path (or (:scene-path new-props) [:group]))
+        (resources/release! old-resource)))))
+
 (defn- apply-props! [tag widget props]
   (when-not (:disposed? @widget)
+    (compiler/validate-paint-references! (assoc props :tag tag))
     (let [{old-props :props resource :resource context :context} @widget]
       (if (native-context? context)
-        (compiler/update-node! widget old-props props (native-acquisitions context))
+        (if (contains? #{:group :composite :scene} tag)
+          (update-native-group! widget old-props props context)
+          (compiler/update-node! widget old-props props (native-acquisitions context)))
         (let [old-key (cache-key tag old-props)
               new-key (cache-key tag props)]
           (cond
@@ -86,11 +124,13 @@
             (= old-key new-key)
             (do
               (resources/update-layers! resource props)
-              (swap! widget assoc :props props))
+              (swap! widget assoc :props props
+                     :scene-path (or (:scene-path props) [tag])))
 
             :else
             (let [replacement (resources/acquire! (:factory resource) context new-key props)]
-              (swap! widget assoc :props props :resource replacement)
+              (swap! widget assoc :props props :resource replacement
+                     :scene-path (or (:scene-path props) [tag]))
               (resources/release! resource)))))))
   nil)
 
@@ -158,15 +198,17 @@
     (into (vec value) (repeat (- 3 (count value)) 0))))
 
 (defn- resource-command [resource transform scale color props]
-  (let [effect (when-let [data (:effect props)]
+  (let [scene-path (vec (or (:scene-path props) [:shape]))
+        effect (when-let [data (:effect props)]
                  (effects/effect-program!
                    (:context resource)
-                   (update data :scene-path #(or % [:effect]))))]
+                   (assoc data :scene-path (conj scene-path :effect))))]
     {:handle (renderer/native-handle resource)
      :paint (renderer/native-paint-handle resource)
      :transform transform
      :scale scale
      :color color
+     :scene-path scene-path
      :effect (get effect :handle 0)
      :effect-id (get props :effect-id (get effect :id 0))
      :effect-param (get props :effect-param (get effect :param 0))
@@ -175,7 +217,7 @@
      :blend-mode (get props :blend-mode :src-over)}))
 
 (defn- widget-commands [widget parent-transform parent-scale parent-color]
-  (let [{:keys [tag props resource resources children]} @widget]
+  (let [{:keys [tag props resource resources mask-resource children]} @widget]
     (if-not (visible? props)
       []
       (let [[x y z] (position props)
@@ -186,22 +228,35 @@
             color (mapv * color parent-color)
             node-scale (case tag
                          :text (* (get props :size 1) (get props :scale 1))
-                         (:shape :path) 1
+                         (:shape :path) (get props :scale 1)
                          (get props :scale 1))
             scale (* parent-scale node-scale)]
         (case tag
           :text
-          (first
-            (reduce
-              (fn [[commands advance] glyph]
-                (let [shape (core/shape (:atlas glyph) (get-in glyph [:root :key]))
-                      command (resource-command glyph
-                                [(+ (first transform) (* parent-scale advance))
-                                 (second transform) (nth transform 2)]
-                                scale color props)]
-                  [(conj commands command)
-                   (+ advance (* (:advance shape) node-scale))]))
-              [[] 0] resources))
+          (let [advances (mapv #(* node-scale (get-in % [:shape :advance])) resources)
+                total-advance (reduce + 0 advances)
+                align-offset (case (get props :align :left)
+                               :center (- (/ total-advance 2))
+                               :right (- total-advance)
+                               0)
+                metrics (:metrics (first resources))
+                anchor-ratio (case (get props :anchor :baseline)
+                               :cap-center (* 0.5 (:cap-height-ratio metrics))
+                               :cap-top (:cap-height-ratio metrics)
+                               :x-center (* 0.5 (:x-height-ratio metrics))
+                               0)
+                origin [(+ (first transform) align-offset)
+                        (- (second transform) (* node-scale (or anchor-ratio 0)))
+                        (nth transform 2)]]
+            (first
+              (reduce
+                (fn [[commands advance] [glyph glyph-advance]]
+                  (let [command (resource-command glyph
+                                  [(+ (first origin) (* parent-scale advance))
+                                   (second origin) (nth origin 2)]
+                                  scale color props)]
+                    [(conj commands command) (+ advance glyph-advance)]))
+                [[] 0] (mapv vector resources advances))))
 
           (:shape :path)
           [(resource-command resource transform scale color props)]
@@ -209,12 +264,16 @@
           (let [mask (:mask props)
                 blend-mode (get props :blend-mode :src-over)
                 offscreen? (or mask (not= :src-over blend-mode))
+                scene-path (vec (or (:scene-path props) [tag]))
                 commands (vec (mapcat #(widget-commands % transform scale
                                                         (if offscreen? parent-color color))
                                       children))]
             (if offscreen?
-              (into [{:begin-group mask :transform transform :scale scale :color color}]
-                    (conj commands {:end-group blend-mode}))
+              (into [{:begin-group mask
+                      :mask-handle (if mask-resource (renderer/native-handle mask-resource) 0)
+                      :transform transform :scale scale :color color
+                      :scene-path scene-path}]
+                    (conj commands {:end-group blend-mode :scene-path scene-path}))
               commands)))))))
 
 (defn- draw-tree [scene]
@@ -259,6 +318,7 @@
                :on-start (:on-start opts)
                :after-render (:after-render opts)})
             (finally
+              (renderer/stop-scheduling! context)
               (reset! b/loop-running? previous-running)
               (try
                 (unmount!)

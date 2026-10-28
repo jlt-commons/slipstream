@@ -138,6 +138,35 @@
         (is (= 80 (alength (:vertices missing))))
         (is (= 6 (alength (:indices missing))))))))
 
+(deftest canvas-initial-configuration-failure-destroys-the-native-handle
+  (let [atlas (slug/make-atlas)
+        destroyed (atom 0)
+        original-destroy slipstream.ffi/canvas-destroy]
+    (try
+      (with-redefs [slipstream.ffi/canvas-command (fn [& _] 1)
+                    slipstream.ffi/last-error (constantly "injected initial config failure")
+                    slipstream.ffi/canvas-destroy (fn [handle]
+                                                    (swap! destroyed inc)
+                                                    (original-destroy handle))]
+        (let [error (capture-ex-info #(slug/make-canvas atlas {:auto-metrics false}))]
+          (is (some? error))
+          (is (= :canvas-command! (:op (ex-data error))))
+          (is (= "injected initial config failure" (:native-error (ex-data error))))
+          (is (= 1 @destroyed))))
+      (finally
+        (slug/destroy! atlas)))))
+
+(deftest mesh-rejects-more-than-65536-vertices-with-operation-context
+  (slug/with-atlas [atlas {:texture-width 128}]
+    (slug/add-shape! atlas :rect rectangle-curves {})
+    (slug/build! atlas)
+    (let [error (capture-ex-info
+                  #(slug/mesh atlas (vec (repeat 16385 {:key :rect}))))]
+      (is (some? error))
+      (is (= :mesh (:op (ex-data error))))
+      (is (re-find #"65536" (:native-error (ex-data error))))
+      (is (re-find #"16384" (:native-error (ex-data error)))))))
+
 (deftest recursive-mesh-composes-transforms-and-rejects-cycles
   (slug/with-atlas [a {:texture-width 128}]
     (slug/add-shape! a :rect rectangle-curves {})
@@ -190,6 +219,7 @@
             (let [loaded (slug/read-atlas path)]
               (try
                 (is (true? (slug/built? loaded)))
+                (is (= :mesh (:op (ex-data (capture-ex-info #(slug/mesh loaded))))))
                 (is (= 1.0 (:width (slug/shape loaded :rect))))
                 (is (= expected-curve (vec (:bytes (slug/texture loaded :curve)))))
                 (is (= expected-band (vec (:bytes (slug/texture loaded :band)))))

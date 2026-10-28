@@ -187,6 +187,9 @@
       (fail scene-path node "font does not accept children"))
     (when-not (string? (:path opts))
       (fail scene-path node "font requires a string :path"))
+    (doseq [field [:ascii :all]]
+      (when (and (contains? opts field) (not (boolean? (get opts field))))
+        (fail scene-path node (str (name field) " must be boolean") {field (get opts field)})))
     (when (> (count modes) 1)
       (fail scene-path node "font codepoint modes are mutually exclusive"))
     (when (and (contains? opts :codepoints) (not (vector? (:codepoints opts))))
@@ -196,7 +199,10 @@
                        (vec (sort (distinct (:codepoints opts))))
                        [])]
       (doseq [cp codepoints]
-        (integer-value cp 0 0x10ffff scene-path node :codepoints))
+        (integer-value cp 0 0x10ffff scene-path node :codepoints)
+        (when (<= 0xd800 cp 0xdfff)
+          (fail scene-path node "font codepoint must be a Unicode scalar value"
+                {:codepoints [cp]})))
       {:tag :font :id font-id :path (:path opts) :mode mode :codepoints codepoints
        :uniform (let [value (get opts :uniform false)]
                   (when-not (boolean? value)
@@ -247,7 +253,9 @@
       (fail scene-path node "mask key must be a keyword"))
     (when (and (= :sdf-tile type) (nil? mask-key))
       (fail scene-path node "SDF tile mask requires a key"))
-    {:type type :params params :invert (boolean (:invert mask)) :key mask-key}))
+    (when (and (contains? mask :invert) (not (boolean? (:invert mask))))
+      (fail scene-path node "mask :invert must be boolean" {:invert (:invert mask)}))
+    {:type type :params params :invert (get mask :invert false) :key mask-key}))
 
 (declare normalize-node)
 
@@ -278,6 +286,9 @@
     (id (:font opts) scene-path node true)
     (when (and (contains? opts :fill) (contains? opts :color))
       (fail scene-path node "text :fill and :color are mutually exclusive"))
+    (when (and (contains? opts :compatibility) (not (boolean? (:compatibility opts))))
+      (fail scene-path node ":compatibility must be boolean"
+            {:compatibility (:compatibility opts)}))
     (merge
       {:tag :text :font (:font opts) :text (first children)
        :size (number-value (get opts :size 1) scene-path node :size)
@@ -502,11 +513,11 @@
       (if define?
         (do
           (core/define-shape! canvas path (:key node)
-                              {:scale (:scale node) :origin (:origin node)})
+                              {:scale 1 :origin (:origin node)})
           nil)
         (let [paint-value (if (:stroke node) (:paint node) (:fill node))
               paint (native-paint context paint-value)
-              opts {:key (:key node) :scale (:scale node) :origin (:origin node)
+              opts {:key (:key node) :scale 1 :origin (:origin node)
                     :join (:join node) :cap (:cap node) :miter-limit (:miter-limit node)
                     :clockwise (:clockwise node)}
               layer (if (:stroke node)

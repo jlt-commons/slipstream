@@ -152,6 +152,39 @@
         (is (contains? data :scene-path) (pr-str scene))
         (is (contains? data :node) (pr-str scene))))))
 
+(deftest shape-scale-is-applied-only-to-the-layer
+  (doseq [paint [{:fill [1 0 0 1]} {:stroke 0.1 :paint [1 0 0 1]}]]
+    (slug/with-scene [scene [:scene
+                             [:path {:id :rect} [:rect 0 0 1 1]]
+                             [:shape (merge {:path :rect :scale 2} paint)]]]
+      (let [vertices (:vertices (slug/mesh scene))
+            width (if (:stroke paint) 1.1 1.0)
+            scaled-x1 (+ 0.02 (* 2 width))]
+        (is (< (Math/abs (- width (:width (slug/shape scene (get-in scene [:layers 0 :key])))))
+               0.00001))
+        (is (= 2.0 (get-in scene [:layers 0 :scale])))
+        (doseq [[i expected] [[0 -0.02] [1 -0.02] [2 0.0]
+                              [20 scaled-x1] [21 -0.02] [22 0.0]
+                              [40 scaled-x1] [41 scaled-x1] [42 0.0]
+                              [60 -0.02] [61 scaled-x1] [62 0.0]]]
+          (is (< (Math/abs (- (aget vertices i) expected)) 0.00001)))))))
+
+(deftest normalization-rejects-invalid-unicode-and-boolean-options
+  (let [invalid-scenes
+        [[:scene [:font {:id :f :path test-font :codepoints [0xd800]}]]
+         [:scene [:font {:id :f :path test-font :codepoints [0xdfff]}]]
+         [:scene [:font {:id :f :path test-font :ascii 1}]]
+         [:scene [:font {:id :f :path test-font :all "yes"}]]
+         [:scene [:font {:id :f :path test-font}]
+          [:text {:font :f :compatibility 1} "A"]]
+         [:scene [:group {:mask {:type :circle :invert 1}}
+          [:shape {} [:rect 0 0 1 1]]]]]]
+    (doseq [scene invalid-scenes]
+      (let [error (capture-ex-info #(slug/normalize scene))]
+        (is (some? error) (pr-str scene))
+        (is (vector? (:scene-path (ex-data error))) (pr-str scene))
+        (is (contains? (ex-data error) :node) (pr-str scene))))))
+
 (deftest compilation-resolves-definitions-and-preserves-root-and-composite-order
   (let [data [:scene {:texture-width 256}
               [:shape {:id :flat :path :rect :fill [1 0 0 1]}]

@@ -44,10 +44,9 @@ set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glfw)
 
 find_path(NLOHMANN_JSON_INCLUDE_DIR nlohmann/json.hpp
-  PATHS "${SLUGHORN_HOME}/ext/json/include" /opt/homebrew/include /usr/local/include
-  NO_DEFAULT_PATH)
+  PATHS "${SLUGHORN_HOME}/ext/json/include" /opt/homebrew/include /usr/local/include)
 if(NOT NLOHMANN_JSON_INCLUDE_DIR)
-  message(FATAL_ERROR "nlohmann/json.hpp not found; initialize Slughorn's ext/json submodule or install nlohmann-json")
+  message(FATAL_ERROR "nlohmann/json.hpp not found; initialize Slughorn's ext/json submodule or install nlohmann-json (for example, apt install nlohmann-json3-dev or brew install nlohmann-json)")
 endif()
 
 FetchContent_Declare(

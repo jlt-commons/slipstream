@@ -471,9 +471,15 @@
     (when (or (nil? handle) (zero? handle))
       (native-failure :make-canvas))
     (let [canvas (->Canvas handle atlas (atom false))]
-      (when-not auto-metrics
-        (canvas-command! canvas [:set-auto-metrics false]))
-      canvas)))
+      (try
+        (when-not auto-metrics
+          (canvas-command! canvas [:set-auto-metrics false]))
+        canvas
+        (catch Throwable error
+          (try
+            (destroy! canvas)
+            (catch Throwable _))
+          (throw error))))))
 
 (defmacro with-canvas [[canvas atlas opts] & body]
   `(let [~canvas (make-canvas ~atlas ~opts)]
@@ -729,7 +735,8 @@
 
 (defn load-font! [atlas path codepoints opts]
   (doseq [cp codepoints]
-    (when-not (and (integer? cp) (<= 0 cp 0x10ffff))
+    (when-not (and (integer? cp) (<= 0 cp 0x10ffff)
+                   (not (<= 0xd800 cp 0xdfff)))
       (throw (ex-info "font codepoint must be a Unicode scalar value"
                       {:op :load-font! :codepoint cp}))))
   (load-font* atlas path codepoints 0 opts :load-font!))
