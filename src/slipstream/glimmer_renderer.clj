@@ -237,6 +237,45 @@
       (native-failure :should-close?))
     result))
 
+(defn input-snapshot [context]
+  (let [handle (context-handle context :input-snapshot)]
+    (ffi/with-layout [input f/gl-input-layout]
+      (when-not (zero? (f/gl-input-snapshot handle input))
+        (native-failure :input-snapshot))
+      {:x (ffi/read-field input f/gl-input-layout :x)
+       :y (ffi/read-field input f/gl-input-layout :y)
+       :scroll-x (ffi/read-field input f/gl-input-layout :scroll-x)
+       :scroll-y (ffi/read-field input f/gl-input-layout :scroll-y)
+       :left (not (zero? (ffi/read-field input f/gl-input-layout :left)))
+       :right (not (zero? (ffi/read-field input f/gl-input-layout :right)))
+       :middle (not (zero? (ffi/read-field input f/gl-input-layout :middle)))
+       :space (not (zero? (ffi/read-field input f/gl-input-layout :space)))
+       :r (not (zero? (ffi/read-field input f/gl-input-layout :r)))})))
+
+(defn request-close! [context]
+  (when-not (zero? (f/gl-request-close (context-handle context :request-close!)))
+    (native-failure :request-close!))
+  nil)
+
+(defn cursor->bounds [context bounds]
+  (let [{:keys [x y]} (input-snapshot context)
+        handle (context-handle context :cursor->bounds)]
+    (ffi/with-layout [state f/gl-frame-state-layout]
+      (when-not (zero? (f/gl-test-frame-state handle state))
+        (native-failure :cursor->bounds))
+      (let [window-width (ffi/read-field state f/gl-frame-state-layout [:window-size 0])
+            window-height (ffi/read-field state f/gl-frame-state-layout [:window-size 1])
+            framebuffer-width (ffi/read-field state f/gl-frame-state-layout [:framebuffer-size 0])
+            framebuffer-height (ffi/read-field state f/gl-frame-state-layout [:framebuffer-size 1])]
+        (when (or (zero? window-width) (zero? window-height)
+                  (zero? framebuffer-width) (zero? framebuffer-height))
+          (throw (ex-info "cannot map cursor with an empty window or framebuffer"
+                          {:op :cursor->bounds})))
+        (let [[left right bottom top]
+              (or bounds [0 (/ (double framebuffer-width) framebuffer-height) 0 1])]
+          [(+ left (* (/ x window-width) (- right left)))
+           (+ bottom (* (- 1 (/ y window-height)) (- top bottom)))])))))
+
 (defn swap-buffers! [context]
   (when-not (zero? (f/gl-swap (context-handle context :swap-buffers!)))
     (native-failure :swap-buffers!))

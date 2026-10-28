@@ -8,6 +8,7 @@
             [slipstream.glimmer-test]
             [slipstream.glimmer-resources-test]
             [slipstream.glimmer-renderer-test]
+            [slipstream.glimmer-input-test]
             [slipstream.glimmer-paint-test]
             [slipstream.glimmer-compositor-test]
             [slipstream.glimmer-effects-test]
@@ -22,6 +23,7 @@
                                           'slipstream.glfw-test 'slipstream.glimmer-test
                                           'slipstream.glimmer-resources-test
                                           'slipstream.glimmer-renderer-test
+                                          'slipstream.glimmer-input-test
                                           'slipstream.glimmer-paint-test
                                           'slipstream.glimmer-compositor-test
                                           'slipstream.glimmer-effects-test 'slipstream.parity-test)]

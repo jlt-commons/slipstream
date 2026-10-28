@@ -29,6 +29,18 @@ struct PaintData {
   std::array<float, 4> shape_data{};
 };
 
+struct InputState {
+  double x = 0;
+  double y = 0;
+  double scroll_x = 0;
+  double scroll_y = 0;
+  uint8_t left = 0;
+  uint8_t right = 0;
+  uint8_t middle = 0;
+  uint8_t space = 0;
+  uint8_t r = 0;
+};
+
 const char* paint_vertex_source();
 const char* paint_fragment_source();
 std::string effect_vertex_source(const std::string& declarations, const std::string& hook);

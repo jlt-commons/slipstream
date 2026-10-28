@@ -284,10 +284,17 @@ typedef struct SSGLFrameState {
   float effect_param;
 } SSGLFrameState;
 
+typedef struct SSGLInput {
+  double x, y, scroll_x, scroll_y;
+  uint8_t left, right, middle, space, r;
+} SSGLInput;
+
 void* ss_gl_context_create(const SSGLContextOptions* options) SS_NOEXCEPT;
 int ss_gl_context_destroy(void* context) SS_NOEXCEPT;
 int ss_gl_poll(void* context) SS_NOEXCEPT;
 bool ss_gl_should_close(void* context) SS_NOEXCEPT;
+int ss_gl_input_snapshot(void* context, SSGLInput* out) SS_NOEXCEPT;
+int ss_gl_request_close(void* context) SS_NOEXCEPT;
 void* ss_gl_program(void* context, const char* shader_key) SS_NOEXCEPT;
 void* ss_gl_effect_program(
   void* context, const char* program_key, const char* effect_key,
@@ -303,6 +310,7 @@ int ss_gl_swap(void* context) SS_NOEXCEPT;
 
 /* Native integration instrumentation: resize the real window, read back GL
  * state and copy the current framebuffer as bottom-up RGBA8 pixels. */
+int ss_gl_test_set_input(void* context, const SSGLInput* input) SS_NOEXCEPT;
 int ss_gl_test_resize(void* context, int32_t width, int32_t height) SS_NOEXCEPT;
 int ss_gl_test_bind_nondefault(
   void* context, int32_t x, int32_t y, int32_t width, int32_t height) SS_NOEXCEPT;

@@ -101,6 +101,7 @@ struct GLContext {
   float effect_param = 0;
   bool has_bounds = false;
   float bounds[4] = {0, 1, 0, 1};
+  slipstream::reactive::InputState input;
   std::unordered_set<GLResource*> resources;
 
   ~GLContext() {
@@ -117,6 +118,40 @@ struct GLContext {
     if(window) glfwDestroyWindow(window);
   }
 };
+
+GLContext* window_context(GLFWwindow* window) {
+  return static_cast<GLContext*>(glfwGetWindowUserPointer(window));
+}
+
+void cursor_position(GLFWwindow* window, double x, double y) {
+  auto& input = window_context(window)->input;
+  input.x = x;
+  input.y = y;
+}
+
+void mouse_button(GLFWwindow* window, int button, int action, int) {
+  auto& input = window_context(window)->input;
+  uint8_t* state = nullptr;
+  switch(button) {
+    case GLFW_MOUSE_BUTTON_LEFT: state = &input.left; break;
+    case GLFW_MOUSE_BUTTON_RIGHT: state = &input.right; break;
+    case GLFW_MOUSE_BUTTON_MIDDLE: state = &input.middle; break;
+    default: return;
+  }
+  *state = action == GLFW_RELEASE ? 0 : 1;
+}
+
+void scroll(GLFWwindow* window, double x, double y) {
+  auto& input = window_context(window)->input;
+  input.scroll_x += x;
+  input.scroll_y += y;
+}
+
+void key(GLFWwindow* window, int key_code, int, int action, int) {
+  auto& input = window_context(window)->input;
+  if(key_code == GLFW_KEY_SPACE) input.space = action == GLFW_RELEASE ? 0 : 1;
+  if(key_code == GLFW_KEY_R) input.r = action == GLFW_RELEASE ? 0 : 1;
+}
 
 std::mutex registry_mutex;
 std::unordered_set<GLContext*> contexts;
@@ -401,6 +436,11 @@ void* ss_gl_context_create(const SSGLContextOptions* options) noexcept {
       const char* title = options && options->title ? options->title : "glimmer";
       context->window = glfwCreateWindow(width, height, title, nullptr, nullptr);
       if(!context->window) throw std::runtime_error("glfwCreateWindow failed");
+      glfwSetWindowUserPointer(context->window, context.get());
+      glfwSetCursorPosCallback(context->window, cursor_position);
+      glfwSetMouseButtonCallback(context->window, mouse_button);
+      glfwSetScrollCallback(context->window, scroll);
+      glfwSetKeyCallback(context->window, key);
       if(options && options->has_bounds) {
         context->has_bounds = true;
         std::copy(options->bounds, options->bounds + 4, context->bounds);
@@ -443,6 +483,51 @@ bool ss_gl_should_close(void* handle) noexcept {
   ss_try(false,
     auto* context = require_context(handle);
     return glfwWindowShouldClose(context->window);
+  );
+}
+
+int ss_gl_input_snapshot(void* handle, SSGLInput* out) noexcept {
+  ss_try(1,
+    auto* context = require_context(handle);
+    if(!out) throw std::invalid_argument("input snapshot output is null");
+    const auto& input = context->input;
+    out->x = input.x;
+    out->y = input.y;
+    out->scroll_x = input.scroll_x;
+    out->scroll_y = input.scroll_y;
+    out->left = input.left;
+    out->right = input.right;
+    out->middle = input.middle;
+    out->space = input.space;
+    out->r = input.r;
+    context->input.scroll_x = 0;
+    context->input.scroll_y = 0;
+    return 0;
+  );
+}
+
+int ss_gl_request_close(void* handle) noexcept {
+  ss_try(1,
+    auto* context = require_context(handle);
+    glfwSetWindowShouldClose(context->window, GLFW_TRUE);
+    return 0;
+  );
+}
+
+int ss_gl_test_set_input(void* handle, const SSGLInput* input) noexcept {
+  ss_try(1,
+    auto* context = require_context(handle);
+    if(!input) throw std::invalid_argument("test input is null");
+    context->input.x = input->x;
+    context->input.y = input->y;
+    context->input.scroll_x = input->scroll_x;
+    context->input.scroll_y = input->scroll_y;
+    context->input.left = input->left;
+    context->input.right = input->right;
+    context->input.middle = input->middle;
+    context->input.space = input->space;
+    context->input.r = input->r;
+    return 0;
   );
 }
 

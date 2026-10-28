@@ -167,10 +167,17 @@
                         [:resource-uploads :uint32]
                         [:paint-texture-uploads :uint32]
                         [:effect-param :float]]]))
+(def gl-input-layout
+  (ffi/layout [:struct [[:x :double] [:y :double]
+                        [:scroll-x :double] [:scroll-y :double]
+                        [:left :uint8] [:right :uint8] [:middle :uint8]
+                        [:space :uint8] [:r :uint8]]]))
 (ffi/defcfn gl-context-create "ss_gl_context_create" [:pointer] :pointer)
 (ffi/defcfn gl-context-destroy "ss_gl_context_destroy" [:pointer] :int32)
 (ffi/defcfn gl-poll "ss_gl_poll" [:pointer] :int32)
 (ffi/defcfn gl-should-close "ss_gl_should_close" [:pointer] :bool)
+(ffi/defcfn gl-input-snapshot "ss_gl_input_snapshot" [:pointer :pointer] :int32)
+(ffi/defcfn gl-request-close "ss_gl_request_close" [:pointer] :int32)
 (ffi/defcfn gl-program "ss_gl_program" [:pointer :string] :pointer)
 (ffi/defcfn gl-effect-program "ss_gl_effect_program"
   [:pointer :pointer :pointer :pointer :pointer :pointer :uint8 :pointer :uint64] :pointer)
@@ -180,6 +187,7 @@
 (ffi/defcfn gl-render "ss_gl_render" [:pointer :pointer :uint64] :int32)
 (ffi/defcfn gl-error-command "ss_gl_error_command" [:pointer] :int64)
 (ffi/defcfn gl-swap "ss_gl_swap" [:pointer] :int32)
+(ffi/defcfn gl-test-set-input "ss_gl_test_set_input" [:pointer :pointer] :int32)
 (ffi/defcfn gl-test-resize "ss_gl_test_resize" [:pointer :int32 :int32] :int32)
 (ffi/defcfn gl-test-bind-nondefault "ss_gl_test_bind_nondefault"
   [:pointer :int32 :int32 :int32 :int32] :int32)
