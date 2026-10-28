@@ -75,3 +75,12 @@
       (let [[x y] (renderer/cursor->bounds context [-2 4 3 7])]
         (is (close? 2.5 x))
         (is (close? 6.0 y))))))
+
+(deftest cursor-mapping-does-not-consume-scroll
+  (with-context [context {:visible false :width 320 :height 240}]
+    (set-input! context {:x 80.0 :y 60.0 :scroll-x 3.25 :scroll-y -4.5
+                         :left 0 :right 0 :middle 0 :space 0 :r 0})
+    (renderer/cursor->bounds context nil)
+    (let [snapshot (renderer/input-snapshot context)]
+      (is (= 3.25 (:scroll-x snapshot)))
+      (is (= -4.5 (:scroll-y snapshot))))))

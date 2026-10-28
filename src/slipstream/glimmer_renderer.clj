@@ -257,8 +257,15 @@
     (native-failure :request-close!))
   nil)
 
+(defn- cursor-position [context]
+  (ffi/with-layout [cursor f/gl-cursor-layout]
+    (when-not (zero? (f/gl-cursor-snapshot context cursor))
+      (native-failure :cursor->bounds))
+    [(ffi/read-field cursor f/gl-cursor-layout :x)
+     (ffi/read-field cursor f/gl-cursor-layout :y)]))
+
 (defn cursor->bounds [context bounds]
-  (let [{:keys [x y]} (input-snapshot context)
+  (let [[x y] (cursor-position (context-handle context :cursor->bounds))
         handle (context-handle context :cursor->bounds)]
     (ffi/with-layout [state f/gl-frame-state-layout]
       (when-not (zero? (f/gl-test-frame-state handle state))

@@ -506,6 +506,16 @@ int ss_gl_input_snapshot(void* handle, SSGLInput* out) noexcept {
   );
 }
 
+int ss_gl_cursor_snapshot(void* handle, SSGLCursor* out) noexcept {
+  ss_try(1,
+    auto* context = require_context(handle);
+    if(!out) throw std::invalid_argument("cursor snapshot output is null");
+    out->x = context->input.x;
+    out->y = context->input.y;
+    return 0;
+  );
+}
+
 int ss_gl_request_close(void* handle) noexcept {
   ss_try(1,
     auto* context = require_context(handle);

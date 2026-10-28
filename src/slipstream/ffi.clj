@@ -172,11 +172,14 @@
                         [:scroll-x :double] [:scroll-y :double]
                         [:left :uint8] [:right :uint8] [:middle :uint8]
                         [:space :uint8] [:r :uint8]]]))
+(def gl-cursor-layout
+  (ffi/layout [:struct [[:x :double] [:y :double]]]))
 (ffi/defcfn gl-context-create "ss_gl_context_create" [:pointer] :pointer)
 (ffi/defcfn gl-context-destroy "ss_gl_context_destroy" [:pointer] :int32)
 (ffi/defcfn gl-poll "ss_gl_poll" [:pointer] :int32)
 (ffi/defcfn gl-should-close "ss_gl_should_close" [:pointer] :bool)
 (ffi/defcfn gl-input-snapshot "ss_gl_input_snapshot" [:pointer :pointer] :int32)
+(ffi/defcfn gl-cursor-snapshot "ss_gl_cursor_snapshot" [:pointer :pointer] :int32)
 (ffi/defcfn gl-request-close "ss_gl_request_close" [:pointer] :int32)
 (ffi/defcfn gl-program "ss_gl_program" [:pointer :string] :pointer)
 (ffi/defcfn gl-effect-program "ss_gl_effect_program"

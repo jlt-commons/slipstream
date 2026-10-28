@@ -289,11 +289,16 @@ typedef struct SSGLInput {
   uint8_t left, right, middle, space, r;
 } SSGLInput;
 
+typedef struct SSGLCursor {
+  double x, y;
+} SSGLCursor;
+
 void* ss_gl_context_create(const SSGLContextOptions* options) SS_NOEXCEPT;
 int ss_gl_context_destroy(void* context) SS_NOEXCEPT;
 int ss_gl_poll(void* context) SS_NOEXCEPT;
 bool ss_gl_should_close(void* context) SS_NOEXCEPT;
 int ss_gl_input_snapshot(void* context, SSGLInput* out) SS_NOEXCEPT;
+int ss_gl_cursor_snapshot(void* context, SSGLCursor* out) SS_NOEXCEPT;
 int ss_gl_request_close(void* context) SS_NOEXCEPT;
 void* ss_gl_program(void* context, const char* shader_key) SS_NOEXCEPT;
 void* ss_gl_effect_program(
