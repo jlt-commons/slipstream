@@ -37,6 +37,7 @@ public:
   void end_group(uint8_t blend_mode);
   void end_frame();
   void restore();
+  void fail_next_for_test(uint32_t point);
 
 private:
   struct Impl;

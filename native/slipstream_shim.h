@@ -285,6 +285,10 @@ int ss_gl_swap(void* context) SS_NOEXCEPT;
 /* Native integration instrumentation: resize the real window, read back GL
  * state and copy the current framebuffer as bottom-up RGBA8 pixels. */
 int ss_gl_test_resize(void* context, int32_t width, int32_t height) SS_NOEXCEPT;
+int ss_gl_test_bind_nondefault(
+  void* context, int32_t x, int32_t y, int32_t width, int32_t height) SS_NOEXCEPT;
+int ss_gl_test_restore_default(void* context) SS_NOEXCEPT;
+int ss_gl_test_fail_next(void* context, uint32_t point) SS_NOEXCEPT;
 int ss_gl_test_frame_state(void* context, SSGLFrameState* out) SS_NOEXCEPT;
 int ss_gl_test_capture(void* context, uint8_t* out, uint64_t capacity) SS_NOEXCEPT;
 

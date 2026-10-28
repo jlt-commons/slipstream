@@ -138,14 +138,19 @@
   (with-context [context]
     (let [destination (upload context [0.25 0.5 0.75 1.0])
           source (upload context [0.5 0.5 0.5 1.0]
-                         {:path [[:move-to 0 0] [:line-to 1 0] [:line-to 0 1] [:close]]})]
+                         {:path [[:rect 0 0 0.5 1]]})]
       (try
-        (let [edge-source (assoc (draw source :src) :transform [(/ 1.0 128.0) 0 0])]
-          (check-pixel (capture context [edge-source]) [32 32] [64 64 64 128]))
-        (let [frame (capture context [(draw destination :src)
-                                      (assoc (draw source :multiply)
-                                             :transform [(/ 1.0 128.0) 0 0])])]
-          (check-pixel frame [32 32] [48 96 144 255]))
+        (doseq [window-size [64 80]]
+          (when-not (= 64 window-size)
+            (is (zero? (f/gl-test-resize (:handle context) window-size window-size))))
+          (let [width (:width (capture context []))
+                offset (/ 0.5 width)
+                edge-source (assoc (draw source :src) :transform [offset 0 0])]
+            (check-pixel (capture context [edge-source]) [32 32] [64 64 64 128])
+            (let [frame (capture context [(draw destination :src)
+                                          (assoc (draw source :multiply)
+                                                 :transform [offset 0 0])])]
+              (check-pixel frame [32 32] [48 96 144 255]))))
         (finally
           (release context destination)
           (release context source))))))
@@ -198,10 +203,15 @@
   (with-context [context]
     (let [source (upload context [1 0 0 1])]
       (try
-        (let [frame (capture context
-                      [{:begin-group {:type :rect :params [0 0 (+ 0.5 (/ 0.25 64.0)) 1]}}
-                       (draw source) {:end-group :src-over}])]
-          (check-pixel frame [32 32] [147 19 19 255]))
+        (doseq [window-size [64 80]]
+          (when-not (= 64 window-size)
+            (is (zero? (f/gl-test-resize (:handle context) window-size window-size))))
+          (let [width (:width (capture context []))
+                frame (capture context
+                        [{:begin-group {:type :rect
+                                        :params [0 0 (+ 0.5 (/ 0.5 width)) 1]}}
+                         (draw source) {:end-group :src-over}])]
+            (check-pixel frame [32 32] [147 19 19 255])))
         (finally
           (release context source))))))
 
@@ -267,10 +277,88 @@
     (when-not (zero? (f/gl-test-frame-state (:handle context) out))
       (throw (ex-info "frame state failed" {:error (f/last-error)})))
     {:framebuffer-binding (ffi/read-field out f/gl-frame-state-layout :framebuffer-binding)
+     :viewport (mapv #(ffi/read-field out f/gl-frame-state-layout [:viewport %]) (range 4))
      :framebuffer-size (mapv #(ffi/read-field out f/gl-frame-state-layout [:framebuffer-size %])
                              (range 2))
      :shader-compilations (ffi/read-field out f/gl-frame-state-layout :shader-compilations)
      :resource-uploads (ffi/read-field out f/gl-frame-state-layout :resource-uploads)}))
+
+(defn- bind-nondefault! [context viewport]
+  (let [[x y width height] viewport]
+    (when-not (zero? (f/gl-test-bind-nondefault (:handle context) x y width height))
+      (throw (ex-info "bind nondefault failed" {:error (f/last-error)})))))
+
+(defn- restore-default! [context]
+  (when-not (zero? (f/gl-test-restore-default (:handle context)))
+    (throw (ex-info "restore default failed" {:error (f/last-error)}))))
+
+(defn- fail-next! [context point]
+  (when-not (zero? (f/gl-test-fail-next (:handle context) point))
+    (throw (ex-info "failure injection failed" {:error (f/last-error)}))))
+
+(defn- restoration-state [context]
+  (select-keys (frame-state context) [:framebuffer-binding :viewport]))
+
+(deftest group-render-restores-nondefault-fbo-and-viewport
+  (with-context [context]
+    (let [source (upload context [1 0 0 1])
+          commands [{:begin-group {:type :rect :params [0 0 1 1]}}
+                    (draw source) {:end-group :src-over}]]
+      (try
+        (bind-nondefault! context [3 5 17 19])
+        (let [before (restoration-state context)]
+          (is (pos? (:framebuffer-binding before)))
+          (is (= [3 5 17 19] (:viewport before)))
+          (renderer/render! context commands)
+          (is (= before (restoration-state context))))
+        (restore-default! context)
+        (check-pixel (renderer/capture! context) [32 32] [255 0 0 255])
+        (finally
+          (restore-default! context)
+          (release context source))))))
+
+(deftest active-draw-exception-restores-nondefault-fbo-and-viewport
+  (with-context [context]
+    (let [source (upload context [1 0 0 1])]
+      (try
+        (bind-nondefault! context [2 4 13 15])
+        (let [before (restoration-state context)]
+          (fail-next! context 2)
+          (is (thrown-with-msg? Exception #"injected compositor draw"
+                (renderer/render! context [(draw source)])))
+          (is (= before (restoration-state context)))
+          (renderer/render! context [(draw source :src)])
+          (is (= before (restoration-state context))))
+        (restore-default! context)
+        (check-pixel (renderer/capture! context) [32 32] [255 0 0 255])
+        (finally
+          (restore-default! context)
+          (release context source))))))
+
+(deftest failed-initialization-restores-state-and-same-size-retry-reallocates
+  (with-context [context]
+    (let [source (upload context [1 0 0 1])
+          commands [{:begin-group {:type :rect :params [0 0 1 1]}}
+                    (draw source) {:end-group :src-over}]]
+      (try
+        (bind-nondefault! context [1 3 11 14])
+        (let [before (restoration-state context)]
+          (fail-next! context 1)
+          (is (thrown-with-msg? Exception #"injected compositor resize"
+                (renderer/render! context commands)))
+          (is (= before (restoration-state context)))
+          (let [retry-error (try
+                              (renderer/render! context commands)
+                              nil
+                              (catch Throwable error error))]
+            (is (nil? retry-error) (str "same-size retry failed: " retry-error))
+            (when-not retry-error
+              (is (= before (restoration-state context)))
+              (restore-default! context)
+              (check-pixel (renderer/capture! context) [32 32] [255 0 0 255]))))
+        (finally
+          (restore-default! context)
+          (release context source))))))
 
 (deftest framebuffer-resize-reuses-resources-and-restores-default-fbo
   (with-context [context]

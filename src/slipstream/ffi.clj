@@ -171,6 +171,10 @@
 (ffi/defcfn gl-render "ss_gl_render" [:pointer :pointer :uint64] :int32)
 (ffi/defcfn gl-swap "ss_gl_swap" [:pointer] :int32)
 (ffi/defcfn gl-test-resize "ss_gl_test_resize" [:pointer :int32 :int32] :int32)
+(ffi/defcfn gl-test-bind-nondefault "ss_gl_test_bind_nondefault"
+  [:pointer :int32 :int32 :int32 :int32] :int32)
+(ffi/defcfn gl-test-restore-default "ss_gl_test_restore_default" [:pointer] :int32)
+(ffi/defcfn gl-test-fail-next "ss_gl_test_fail_next" [:pointer :uint32] :int32)
 (ffi/defcfn gl-test-frame-state "ss_gl_test_frame_state" [:pointer :pointer] :int32)
 (ffi/defcfn gl-test-capture "ss_gl_test_capture" [:pointer :pointer :uint64] :int32)
 

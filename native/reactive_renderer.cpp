@@ -67,6 +67,8 @@ struct GLContext {
   GLProgram paint_program;
   std::unique_ptr<slipstream::reactive::Compositor> compositor;
   GLuint dummy_gradient = 0;
+  GLuint test_fbo = 0;
+  GLuint test_texture = 0;
   uint32_t shader_compilations = 0;
   uint32_t resource_uploads = 0;
   uint32_t paint_texture_uploads = 0;
@@ -83,6 +85,8 @@ struct GLContext {
     if(paint_program.vertex) glDeleteShader(paint_program.vertex);
     if(paint_program.fragment) glDeleteShader(paint_program.fragment);
     if(dummy_gradient) glDeleteTextures(1, &dummy_gradient);
+    if(test_fbo) glDeleteFramebuffers(1, &test_fbo);
+    if(test_texture) glDeleteTextures(1, &test_texture);
     if(window) glfwDestroyWindow(window);
   }
 };
@@ -599,6 +603,52 @@ int ss_gl_test_resize(void* handle, int32_t width, int32_t height) noexcept {
     if(width <= 0 || height <= 0) throw std::invalid_argument("window size must be positive");
     glfwSetWindowSize(context->window, width, height);
     glfwPollEvents();
+    return 0;
+  );
+}
+
+int ss_gl_test_bind_nondefault(
+  void* handle, int32_t x, int32_t y, int32_t width, int32_t height) noexcept {
+  ss_try(1,
+    auto* context = require_context(handle);
+    if(width <= 0 || height <= 0) throw std::invalid_argument("test viewport must be positive");
+    glfwMakeContextCurrent(context->window);
+    if(!context->test_fbo) {
+      glGenTextures(1, &context->test_texture);
+      glBindTexture(GL_TEXTURE_2D, context->test_texture);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+      glGenFramebuffers(1, &context->test_fbo);
+      glBindFramebuffer(GL_FRAMEBUFFER, context->test_fbo);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                             context->test_texture, 0);
+      if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        throw std::runtime_error("test framebuffer is incomplete");
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, context->test_fbo);
+    glViewport(x, y, width, height);
+    return 0;
+  );
+}
+
+int ss_gl_test_restore_default(void* handle) noexcept {
+  ss_try(1,
+    auto* context = require_context(handle);
+    glfwMakeContextCurrent(context->window);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    int width = 0;
+    int height = 0;
+    glfwGetFramebufferSize(context->window, &width, &height);
+    glViewport(0, 0, width, height);
+    return 0;
+  );
+}
+
+int ss_gl_test_fail_next(void* handle, uint32_t point) noexcept {
+  ss_try(1,
+    auto* context = require_context(handle);
+    context->compositor->fail_next_for_test(point);
     return 0;
   );
 }

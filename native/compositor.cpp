@@ -327,6 +327,7 @@ struct Compositor::Impl {
   GLint previous_fbo = 0;
   GLint previous_viewport[4] = {0, 0, 0, 0};
   bool frame_active = false;
+  uint32_t failure = 0;
 
   Impl() {
     composite_vertex = compile_shader(GL_VERTEX_SHADER, fullscreen_vertex_source());
@@ -368,13 +369,17 @@ struct Compositor::Impl {
 
   void resize(int new_width, int new_height) {
     if(width == new_width && height == new_height) return;
+    scratch.resize(new_width, new_height);
+    for(auto& level : levels) {
+      level.targets[0].resize(new_width, new_height);
+      if(failure == 1) {
+        failure = 0;
+        throw std::runtime_error("injected compositor resize failure");
+      }
+      level.targets[1].resize(new_width, new_height);
+    }
     width = new_width;
     height = new_height;
-    scratch.resize(width, height);
-    for(auto& level : levels) {
-      level.targets[0].resize(width, height);
-      level.targets[1].resize(width, height);
-    }
   }
 
   void composite(GLuint source, uint8_t blend_mode, const CompositeMask* mask) {
@@ -458,6 +463,10 @@ void Compositor::draw(const std::function<void()>& draw_geometry,
   if(draw_mode > 3) throw std::invalid_argument("unknown draw mode " + std::to_string(draw_mode));
   validate_blend(blend_mode);
   if(draw_mode != 0) return;
+  if(impl->failure == 2) {
+    impl->failure = 0;
+    throw std::runtime_error("injected compositor draw failure");
+  }
   impl->clear(impl->scratch, 0, 0, 0, 0);
   draw_geometry();
   impl->composite(impl->scratch.texture, blend_mode, nullptr);
@@ -503,6 +512,11 @@ void Compositor::end_frame() {
 
 void Compositor::restore() {
   impl->restore();
+}
+
+void Compositor::fail_next_for_test(uint32_t point) {
+  if(point < 1 || point > 2) throw std::invalid_argument("unknown compositor failure point");
+  impl->failure = point;
 }
 
 }
