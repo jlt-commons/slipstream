@@ -347,12 +347,12 @@ int ss_canvas_mask_path(void* canvas, float range, bool invert, SSMask* out) noe
 
 int64_t ss_atlas_add_gradient(
   void* atlas, uint32_t type, const float* geometry, uint64_t geometry_count,
-  const SSGradientStop* stops, uint64_t stop_count
+  const SSGradientStop* stops, uint64_t stop_count, const float* matrix
 ) noexcept {
   ss_try(-1,
     auto* target = slipstream::require_atlas(atlas);
     if(target->isBuilt()) throw std::runtime_error("cannot add a gradient after atlas build");
-    if(type > 2) throw std::invalid_argument("unknown gradient type");
+    if(type > 3) throw std::invalid_argument("unknown gradient type");
     require_values(geometry, geometry_count, 4);
     if(stop_count == 0) throw std::invalid_argument("gradient requires at least one stop");
     if(!stops) throw std::invalid_argument("gradient stops are null");
@@ -376,8 +376,14 @@ int64_t ss_atlas_add_gradient(
       case slughorn::GradientInfo::Type::Sweep:
         info.transform = slughorn::buildSweepGradientMatrix(geometry[0], geometry[1], geometry[2], geometry[3] - geometry[2]);
         break;
-      default: throw std::invalid_argument("unsupported gradient type");
+      case slughorn::GradientInfo::Type::AffineRadial:
+        if(!matrix) throw std::invalid_argument("affine-radial gradient requires a transform");
+        info.innerRadius = geometry[2];
+        info.transform = slughorn::buildAffineRadialGradientMatrix(
+          geometry[0], geometry[1], matrix[0], matrix[1], matrix[2], matrix[3]);
+        break;
     }
+    if(matrix) info.transform = matrix_from_c(matrix);
     const uint32_t id = target->addGradient(info);
     if(id == 0) throw std::runtime_error("gradient registration failed");
     return static_cast<int64_t>(id);

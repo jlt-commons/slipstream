@@ -67,6 +67,13 @@
             (swap! owners assoc handle context)
             (swap! calls conj [:upload context handle])
             handle)))
+      #'f/gl-paint-texture
+      (fn [context handle]
+        (reset! error "")
+        (cond
+          (contains? @destroyed context) (fail "context is destroyed")
+          (not= context (get @owners handle)) (fail "resource belongs to a different GL context")
+          :else 0))
       #'f/gl-release
       (fn [context handle]
         (reset! error "")
@@ -106,10 +113,13 @@
   (is (not (zero? (f/gl-poll 0))))
   (is (false? (f/gl-should-close 0)))
   (is (seq (f/last-error)))
+  (is (zero? (f/gl-program 0 "paint")))
   (is (zero? (f/gl-upload 0 0 0)))
+  (is (zero? (f/gl-paint-texture 0 0)))
   (is (not (zero? (f/gl-release 0 0))))
   (is (not (zero? (f/gl-render 0 0 0))))
-  (is (not (zero? (f/gl-swap 0)))))
+  (is (not (zero? (f/gl-swap 0))))
+  (is (not (zero? (f/gl-test-capture 0 0 0)))))
 
 (deftest two-contexts-reject-cross-handles-and-tear-down-independently
   (let [cpu (shape-resource)]

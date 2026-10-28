@@ -105,7 +105,7 @@
 (ffi/defcfn path-stroke "ss_path_stroke"
   [:pointer :float :bool :uint32 :uint32 :float] :int32)
 (ffi/defcfn atlas-add-gradient "ss_atlas_add_gradient"
-  [:pointer :uint32 :pointer :uint64 :pointer :uint64] :int64)
+  [:pointer :uint32 :pointer :uint64 :pointer :uint64 :pointer] :int64)
 (ffi/defcfn atlas-add-pattern "ss_atlas_add_pattern"
   [:pointer :pointer :pointer :pointer :uint32 :uint32] :int64)
 (ffi/defcfn atlas-composite-mask "ss_atlas_get_composite_mask"
@@ -143,27 +143,33 @@
                         [:bounds [:array :float 4]]
                         [:has-bounds :uint8] [:visible :uint8]]]))
 (def gl-draw-command-layout
-  (ffi/layout [:struct [[:handle :pointer]
+  (ffi/layout [:struct [[:handle :pointer] [:paint :pointer]
                         [:transform [:struct [[:x :float] [:y :float] [:z :float]]]]
                         [:color [:struct [[:r :float] [:g :float] [:b :float] [:a :float]]]]
-                        [:scale :float] [:visible :uint8]]]))
+                        [:scale :float] [:effect-id :uint32] [:effect-param :float]
+                        [:visible :uint8]]]))
 (def gl-frame-state-layout
   (ffi/layout [:struct [[:viewport [:array :int32 4]]
                         [:framebuffer-size [:array :int32 2]]
                         [:window-size [:array :int32 2]]
                         [:projection [:array :float 16]]
                         [:shader-compilations :uint32]
-                        [:resource-uploads :uint32]]]))
+                        [:resource-uploads :uint32]
+                        [:paint-texture-uploads :uint32]
+                        [:effect-param :float]]]))
 (ffi/defcfn gl-context-create "ss_gl_context_create" [:pointer] :pointer)
 (ffi/defcfn gl-context-destroy "ss_gl_context_destroy" [:pointer] :int32)
 (ffi/defcfn gl-poll "ss_gl_poll" [:pointer] :int32)
 (ffi/defcfn gl-should-close "ss_gl_should_close" [:pointer] :bool)
+(ffi/defcfn gl-program "ss_gl_program" [:pointer :string] :pointer)
 (ffi/defcfn gl-upload "ss_gl_upload" [:pointer :pointer :pointer] :pointer)
+(ffi/defcfn gl-paint-texture "ss_gl_paint_texture" [:pointer :pointer] :pointer)
 (ffi/defcfn gl-release "ss_gl_release" [:pointer :pointer] :int32)
 (ffi/defcfn gl-render "ss_gl_render" [:pointer :pointer :uint64] :int32)
 (ffi/defcfn gl-swap "ss_gl_swap" [:pointer] :int32)
 (ffi/defcfn gl-test-resize "ss_gl_test_resize" [:pointer :int32 :int32] :int32)
 (ffi/defcfn gl-test-frame-state "ss_gl_test_frame_state" [:pointer :pointer] :int32)
+(ffi/defcfn gl-test-capture "ss_gl_test_capture" [:pointer :pointer :uint64] :int32)
 
 (ffi/defcfn glfw-run "ss_glfw_run"
   [:pointer

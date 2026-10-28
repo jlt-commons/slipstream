@@ -58,6 +58,8 @@ add_library(slipstream SHARED
   canvas.cpp
   freetype.cpp
   glfw_renderer.cpp
+  advanced_shaders.cpp
+  paint.cpp
   reactive_renderer.cpp
   "${SLUGHORN_HOME}/slughorn/slughorn.cpp")
 target_include_directories(slipstream PRIVATE

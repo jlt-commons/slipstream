@@ -134,11 +134,14 @@
   (when (and (vector? value) (= 4 (count value)) (every? number? value)) value))
 
 (defn- node-color [props resource]
-  (let [paint (or (flat-color (:color props))
+  (let [advanced? (or (pos? (get-in resource [:root :gradient-id] 0))
+                      (pos? (get-in resource [:root :pattern-id] 0)))
+        paint (or (flat-color (:color props))
                   (flat-color (:fill props))
                   (flat-color (:paint props))
                   (flat-color (get-in props [:paints (:fill props)]))
                   (flat-color (get-in props [:paints (:paint props)]))
+                  (when advanced? [1 1 1 (get-in resource [:root :color 3] 1)])
                   (get-in resource [:root :color])
                   [1 1 1 1])]
     (assoc (vec paint) 3 (* (nth paint 3) (get props :opacity 1)))))
@@ -153,11 +156,14 @@
   (let [value (get props :transform (get props :at [0 0 0]))]
     (into (vec value) (repeat (- 3 (count value)) 0))))
 
-(defn- resource-command [resource transform scale color]
+(defn- resource-command [resource transform scale color props]
   {:handle (renderer/native-handle resource)
+   :paint (renderer/native-paint-handle resource)
    :transform transform
    :scale scale
-   :color color})
+   :color color
+   :effect-id (get props :effect-id 0)
+   :effect-param (get props :effect-param 0)})
 
 (defn- widget-commands [widget parent-transform parent-scale parent-color]
   (let [{:keys [tag props resource resources children]} @widget]
@@ -183,13 +189,13 @@
                       command (resource-command glyph
                                 [(+ (first transform) (* parent-scale advance))
                                  (second transform) (nth transform 2)]
-                                scale color)]
+                                scale color props)]
                   [(conj commands command)
                    (+ advance (* (:advance shape) node-scale))]))
               [[] 0] resources))
 
           (:shape :path)
-          [(resource-command resource transform scale color)]
+          [(resource-command resource transform scale color props)]
 
           (vec (mapcat #(widget-commands % transform scale color) children)))))))
 

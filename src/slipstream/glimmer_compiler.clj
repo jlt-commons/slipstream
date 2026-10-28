@@ -69,6 +69,9 @@
 
     (and (map? paint) (= :pattern (:type paint)))
     (do
+      (when-not (and (:tile paint) (sequential? (:tile-path paint)))
+        (throw (ex-info "pattern paint requires a local tile and tile-path"
+                        {:paint paint})))
       (define-pattern-tile! canvas paint)
       {:pattern-id (core/add-pattern! atlas paint)})
 
@@ -99,7 +102,13 @@
                            paint-value (if stroke?
                                          (get node :paint (get node :color [0 0 0 1]))
                                          (get node :fill [0 0 0 1]))
-                           paint (native-paint atlas canvas node paint-value)
+                           paint (try
+                                   (native-paint atlas canvas node paint-value)
+                                   (catch Throwable error
+                                     (throw (ex-info (.getMessage error)
+                                               (assoc (or (ex-data error) {})
+                                                      :scene-path [:shape (if stroke? :paint :fill)]
+                                                      :paint paint-value)))))
                            opts {:key :node :scale (get node :scale 1)
                                  :origin (get node :origin :default)
                                  :join (get node :join :miter) :cap (get node :cap :butt)

@@ -879,7 +879,7 @@
   canvas)
 
 (defn add-gradient! [atlas {:keys [type from to center inner-radius outer-radius
-                                   start-angle end-angle stops]
+                                   start-angle end-angle stops transform]
                             :or {type :linear inner-radius 0 outer-radius 1
                                  start-angle 0 end-angle 1}}]
   (let [handle (live-handle atlas :add-gradient!)
@@ -887,10 +887,15 @@
                              :linear [0 (into (vec from) (vec to))]
                              :radial [1 (into (vec center) [inner-radius outer-radius])]
                              :sweep [2 (into (vec center) [start-angle end-angle])]
+                             :affine-radial [3 (into (vec center) [inner-radius outer-radius])]
                              (throw (ex-info "unknown gradient type" {:type type})))
         stops (vec stops)]
     (when-not (= 4 (count geometry))
       (throw (ex-info "gradient geometry is incomplete" {:type type})))
+    (when (and transform (not (and (vector? transform) (= 6 (count transform)))))
+      (throw (ex-info "gradient transform must have six components" {:transform transform})))
+    (when (and (= :affine-radial type) (nil? transform))
+      (throw (ex-info "affine-radial gradient requires a transform" {:type type})))
     (when (empty? stops)
       (throw (ex-info "gradient requires at least one stop" {:type type})))
     (doseq [[t color] stops]
@@ -905,9 +910,12 @@
                 (ffi/write-field stop-p f/gradient-stop-layout :t (double t))
                 (doseq [[field value] (map vector [:r :g :b :a] color)]
                   (ffi/write-field stop-p f/gradient-stop-layout [:color field] (double value)))))
-            (let [id (f/atlas-add-gradient handle type-id geometry-p n stops-p (count stops))]
-              (when (neg? id) (native-failure :add-gradient!))
-              id)))))))
+            (call-with-floats (or transform [])
+              (fn [matrix-p _]
+                (let [id (f/atlas-add-gradient handle type-id geometry-p n stops-p
+                                               (count stops) (if transform matrix-p 0))]
+                  (when (neg? id) (native-failure :add-gradient!))
+                  id)))))))))
 
 (defn add-pattern! [atlas {:keys [tile cell transform repeat-x repeat-y]
                            :or {transform [1 0 0 1 0 0]

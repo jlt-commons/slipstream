@@ -189,11 +189,12 @@ int ss_path_stroke(
   void* path, float width, bool clockwise, uint32_t join, uint32_t cap,
   float miter_limit) SS_NOEXCEPT;
 
-/* Geometry has four floats: linear x0,y0,x1,y1; radial cx,cy,r0,r1;
- * sweep cx,cy,start-angle,end-angle. Returns a 1-based ID or -1 on failure. */
+/* Geometry has four floats: linear x0,y0,x1,y1; radial/affine-radial cx,cy,r0,r1;
+ * sweep cx,cy,start-angle,end-angle. An optional six-float matrix overrides the
+ * generated paint transform and is required for affine-radial gradients. */
 int64_t ss_atlas_add_gradient(
   void* atlas, uint32_t type, const float* geometry, uint64_t geometry_count,
-  const SSGradientStop* stops, uint64_t stop_count) SS_NOEXCEPT;
+  const SSGradientStop* stops, uint64_t stop_count, const float* matrix) SS_NOEXCEPT;
 int64_t ss_atlas_add_pattern(
   void* atlas, const SSKey* tile, const float* cell, const float* matrix,
   uint32_t repeat_x, uint32_t repeat_y) SS_NOEXCEPT;
@@ -244,9 +245,12 @@ typedef struct SSGLContextOptions {
 
 typedef struct SSGLDrawCommand {
   void* handle;
+  void* paint;
   SSTransform transform;
   SSColor color;
   float scale;
+  uint32_t effect_id;
+  float effect_param;
   uint8_t visible;
 } SSGLDrawCommand;
 
@@ -255,22 +259,26 @@ typedef struct SSGLFrameState {
   int32_t framebuffer_size[2];
   int32_t window_size[2];
   float projection[16];
-  uint32_t shader_compilations, resource_uploads;
+  uint32_t shader_compilations, resource_uploads, paint_texture_uploads;
+  float effect_param;
 } SSGLFrameState;
 
 void* ss_gl_context_create(const SSGLContextOptions* options) SS_NOEXCEPT;
 int ss_gl_context_destroy(void* context) SS_NOEXCEPT;
 int ss_gl_poll(void* context) SS_NOEXCEPT;
 bool ss_gl_should_close(void* context) SS_NOEXCEPT;
+void* ss_gl_program(void* context, const char* shader_key) SS_NOEXCEPT;
 void* ss_gl_upload(void* context, void* atlas, const SSLayer* root) SS_NOEXCEPT;
+void* ss_gl_paint_texture(void* context, void* resource) SS_NOEXCEPT;
 int ss_gl_release(void* context, void* handle) SS_NOEXCEPT;
 int ss_gl_render(void* context, const SSGLDrawCommand* commands, uint64_t count) SS_NOEXCEPT;
 int ss_gl_swap(void* context) SS_NOEXCEPT;
 
-/* Native integration instrumentation: resize the real window and read back GL
- * viewport/projection state plus per-context compilation/upload counts. */
+/* Native integration instrumentation: resize the real window, read back GL
+ * state and copy the current framebuffer as bottom-up RGBA8 pixels. */
 int ss_gl_test_resize(void* context, int32_t width, int32_t height) SS_NOEXCEPT;
 int ss_gl_test_frame_state(void* context, SSGLFrameState* out) SS_NOEXCEPT;
+int ss_gl_test_capture(void* context, uint8_t* out, uint64_t capacity) SS_NOEXCEPT;
 
 /* The atlas and layer storage are borrowed for the duration of this blocking
  * call. The atlas must be built and remain alive until the renderer exits. */
