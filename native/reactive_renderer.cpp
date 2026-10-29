@@ -98,6 +98,8 @@ struct GLContext {
   uint32_t shader_compilations = 0;
   uint32_t resource_uploads = 0;
   uint32_t paint_texture_uploads = 0;
+  int32_t test_framebuffer_width = -1;
+  int32_t test_framebuffer_height = -1;
   uint32_t draw_commands = 0;
   uint32_t geometry_commands = 0;
   uint32_t group_commands = 0;
@@ -121,6 +123,14 @@ struct GLContext {
     if(window) glfwDestroyWindow(window);
   }
 };
+
+std::pair<int, int> framebuffer_size(GLContext* context) {
+  if(context->test_framebuffer_width >= 0 && context->test_framebuffer_height >= 0)
+    return {context->test_framebuffer_width, context->test_framebuffer_height};
+  int width = 0, height = 0;
+  glfwGetFramebufferSize(context->window, &width, &height);
+  return {width, height};
+}
 
 GLContext* window_context(GLFWwindow* window) {
   return static_cast<GLContext*>(glfwGetWindowUserPointer(window));
@@ -749,9 +759,7 @@ int ss_gl_render(void* handle, const SSGLDrawCommand* commands, uint64_t count) 
     gl_error_command = -1;
     validate_commands(context, commands, count);
     glfwMakeContextCurrent(context->window);
-    int width = 0;
-    int height = 0;
-    glfwGetFramebufferSize(context->window, &width, &height);
+    const auto [width, height] = framebuffer_size(context);
     if(width == 0 || height == 0) return 0;
     float aspect = static_cast<float>(width) / height;
     float bounds[4] = {0, aspect, 0, 1};
@@ -875,7 +883,14 @@ int ss_gl_test_resize(void* handle, int32_t width, int32_t height) noexcept {
   ss_try(1,
     auto* context = require_context(handle);
     if(width < 0 || height < 0) throw std::invalid_argument("window size must not be negative");
-    glfwSetWindowSize(context->window, width, height);
+    if(width == 0 || height == 0) {
+      context->test_framebuffer_width = width;
+      context->test_framebuffer_height = height;
+    } else {
+      context->test_framebuffer_width = -1;
+      context->test_framebuffer_height = -1;
+      glfwSetWindowSize(context->window, width, height);
+    }
     glfwPollEvents();
     return 0;
   );
@@ -911,9 +926,7 @@ int ss_gl_test_restore_default(void* handle) noexcept {
     auto* context = require_context(handle);
     glfwMakeContextCurrent(context->window);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    int width = 0;
-    int height = 0;
-    glfwGetFramebufferSize(context->window, &width, &height);
+    const auto [width, height] = framebuffer_size(context);
     glViewport(0, 0, width, height);
     return 0;
   );
@@ -957,9 +970,7 @@ int ss_gl_test_capture(void* handle, uint8_t* out, uint64_t capacity) noexcept {
     auto* context = require_context(handle);
     if(!out) throw std::invalid_argument("capture output is null");
     glfwMakeContextCurrent(context->window);
-    int width = 0;
-    int height = 0;
-    glfwGetFramebufferSize(context->window, &width, &height);
+    const auto [width, height] = framebuffer_size(context);
     if(width <= 0 || height <= 0) throw std::runtime_error("capture framebuffer is empty");
     const uint64_t required = static_cast<uint64_t>(width) * height * 4;
     if(capacity < required) throw std::invalid_argument("capture output buffer is too small");
