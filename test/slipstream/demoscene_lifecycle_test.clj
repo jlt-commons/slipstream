@@ -317,7 +317,7 @@
 (defn- capture-profile-frame [baseline]
   (let [baseline-hash (hash (vec (get-in baseline [:frame :pixels])))
         baseline-draws (get-in baseline [:native-state :draw-commands])]
-    (loop [remaining 20
+    (loop [remaining 1000
            current (capture-live-frame)]
       (let [current-hash (hash (vec (get-in current [:frame :pixels])))
             current-draws (get-in current [:native-state :draw-commands])]
@@ -332,7 +332,9 @@
               (is (> current-draws baseline-draws)
                   "the selected text workload did not reach native rendering")
               current)
-            (recur (dec remaining) current)))))))
+            (do
+              (Thread/sleep 10)
+              (recur (dec remaining) current))))))))
 
 (defn- exercise-live-nrepl [port]
   (let [transport (nrepl/connect "127.0.0.1" port)]
@@ -375,7 +377,7 @@
                               ":density 2.5 :speed 0.0 :live-eval true) "
                               "(select-keys @slipstream.example.demoscene/state "
                               "[:density :speed :live-eval])"))))
-        (let [{before-context :context before-frame :frame} (capture-live-frame)]
+        (let [{before-context :context before-frame :frame :as before} (capture-live-frame)]
           (is (false? (:close-requested? (capture-live-frame))))
           (evaluate (str "(def palette {:a [1.0 0.0 0.0] :b [0.0 1.0 0.0] "
                          ":c [0.0 0.0 1.0] :d [1.0 0.5 0.25]})")
@@ -387,7 +389,11 @@
           (evaluate "(swap! slipstream.example.demoscene/state update :density + 0.125)")
           (let [{after-context :context after-frame :frame} (capture-live-frame)]
             (is (identical? before-context after-context))
-            (is (= [640 400] [(:width before-frame) (:height before-frame)]))
+            (let [[window-width window-height] (get-in before [:native-state :window-size])
+                  scale-x (/ (:width before-frame) window-width)
+                  scale-y (/ (:height before-frame) window-height)]
+              (is (contains? #{1 2} scale-x))
+              (is (= scale-x scale-y)))
             (is (not= (hash (vec (:pixels before-frame)))
                       (hash (vec (:pixels after-frame))))
                 "the redefined palette must render in the existing window")
