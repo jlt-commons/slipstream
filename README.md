@@ -4,6 +4,12 @@ Slipstream is a data-oriented Jolt wrapper for [Slughorn](https://github.com/Alp
 
 See the [complete API documentation](docs/README.md) for every primitive, option, lifecycle rule, and example.
 
+Screenshot from a [vector-feedback](https://github.com/jasalt/vector-feedback) interactive demo.
+
+<p align="center">
+  <img src="img/screenshot.jpg" alt="samizdat logo" width="600">
+</p>
+
 ## Requirements and dependency setup
 
 - Jolt 0.8.23 or a compatible newer release.
