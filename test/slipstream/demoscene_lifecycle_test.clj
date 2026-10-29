@@ -319,6 +319,15 @@
     (loop [remaining 1000
            current (capture-live-frame)]
       (let [current-hash (hash (vec (get-in current [:frame :pixels])))]
+        (when (zero? (mod remaining 250))
+          (println "palette-capture-diagnostic"
+                   (pr-str {:remaining remaining
+                            :baseline-hash baseline-hash :current-hash current-hash
+                            :state (select-keys @demo/state [:density :speed :metrics-text])
+                            :palette (get-in (visuals/shader-effect @demo/state)
+                                             [:uniforms :paletteA :value])
+                            :draws (get-in current [:native-state :draw-commands])
+                            :queued (count @(:work-queue (:context current)))})))
         (is (identical? (:context baseline) (:context current)))
         (if (not= baseline-hash current-hash)
           current
