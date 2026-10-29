@@ -201,7 +201,7 @@ Timed mode runs the full reactive checkpoint/golden sequence. Use `--auto-quit-m
 jolt -m slipstream.example.demoscene <font.ttf> [--port N] [--capture-dir PATH]
   [--max-frames N] [--auto-quit-ms N]
   [--profile showcase|geometry|text|compositor|shader|all]
-  [--intensity N] [--sdf true|false] [--warmup-ms N]
+  [--intensity N] [--sdf true|false] [--sdf-type sdf|msdf] [--warmup-ms N]
   [--metrics true|false] [--summary true|false]
 ```
 

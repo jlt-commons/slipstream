@@ -29,6 +29,7 @@ CLI options:
 | `--profile showcase\|geometry\|text\|compositor\|shader\|all` | Select the workload; default `showcase`. |
 | `--intensity N` | Bounded integer workload multiplier in `1..16`; default `1`. Invalid or mesh-unsafe work is rejected. |
 | `--sdf true\|false` | Enable or disable the profile's optional SDF/MSDF work; unset by default. |
+| `--sdf-type sdf\|msdf` | Select single-channel SDF or three-channel MSDF geometry baking. Default `msdf` preserves existing behavior; `sdf` avoids MSDF edge-coloring/channel cost at maximum intensity. |
 | `--warmup-ms N` | Nonnegative warm-up duration, default `2000`; initialization and warm-up are excluded from steady-state samples. |
 | `--metrics true\|false` | Show the low-cadence HUD metrics line. Defaults to true for stress profiles and false for `showcase`. |
 | `--summary true\|false` | Print one EDN summary after clean UI teardown. Defaults to true for stress profiles and false for `showcase`. Summary collection still runs when the HUD is hidden. |
@@ -75,7 +76,7 @@ Profiles are opt-in except for the unchanged `showcase`. Intensity is always bou
 | `shader` | One full-bounds procedural effect pass per intensity at high density. Animated uniforms increase fragment/ALU cost without adding unrelated native geometry. Framebuffer size strongly affects this profile. |
 | `all` | Combines the bounded geometry, text, compositor, and shader work to expose interactions between allocation, draw submission, compositing, and fill rate. |
 
-Use the same window size, bounds, intensity, SDF setting, warm-up, and approximate run duration when comparing changes. Stress profiles can be expensive by design; lower intensity or framebuffer size on slower hardware.
+Use the same window size, bounds, intensity, SDF setting/type, warm-up, and approximate run duration when comparing changes. At intensity 16, geometry contains 64 unique and 64 shared paths with 4096 segments each. `:sdf-type :msdf` adds edge coloring and three-channel generation, which can dominate cold bake time; `:sdf-type :sdf` keeps the same nodes/segments but uses single-channel generation. Use `:sdf` for maximum-intensity smoke/resource comparisons and a small bounded `:msdf` run when measuring that path's distinct cost. Stress profiles can be expensive by design; lower intensity or framebuffer size on slower hardware.
 
 ## Metrics, warm-up, and EDN summaries
 
@@ -175,7 +176,7 @@ Change reactive state directly; the existing window renders the resulting scene:
 Switch workloads in the same native window, inspect a plain-data snapshot, then reset before a comparison:
 
 ```clojure
-(demo/load-profile! :geometry {:intensity 4 :sdf true})
+(demo/load-profile! :geometry {:intensity 4 :sdf true :sdf-type :sdf})
 (demo/metrics-snapshot)
 ;; Allow initialization and the configured warm-up to finish, then:
 (demo/reset-metrics!)
@@ -190,7 +191,7 @@ Switch workloads in the same native window, inspect a plain-data snapshot, then 
 (demo/load-profile! :showcase)
 ```
 
-`load-profile!` validates before changing state, updates the existing ratom, and returns `{:profile ... :intensity ... :sdf ...}`. Omitted intensity defaults to `1`; omitted SDF is nil. Reactive reconciliation renders the new workload without recreating the window, nREPL server, or native context. Existing content caches remain available. Reset after each switch so percentiles and deltas do not mix workloads; native cumulative counters remain visible for cache/churn analysis. Snapshot keys and interpretation are described above.
+`load-profile!` validates before changing state, updates the existing ratom, and returns `{:profile ... :intensity ... :sdf ...}` plus an explicitly supplied `:sdf-type`. Omitted intensity defaults to `1`; omitted SDF is nil; omitted SDF type preserves existing MSDF behavior. Valid types are `:sdf` and `:msdf`; other values, including false, are rejected before state changes. Reactive reconciliation renders the new workload without recreating the window, nREPL server, or native context. Existing content caches remain available. Reset after each switch so percentiles and deltas do not mix workloads; native cumulative counters remain visible for cache/churn analysis. Snapshot keys and interpretation are described above.
 
 These functions run ordinary Clojure/Jolt code on nREPL workers. Do not call native context operations directly from those workers; use `ui/on-gui` for GUI work.
 
@@ -252,7 +253,7 @@ Options:
 - `:capture-dir` — optional directory for the demo's first-frame/two-second-interval PPM capture callback.
 - `:max-frames`, `:auto-quit-ms` — optional UI-loop stop conditions; both default to nil.
 - `:profile` — `:showcase`, `:geometry`, `:text`, `:compositor`, `:shader`, or `:all`; default `:showcase`.
-- `:intensity` — integer `1..16`, default `1`; `:sdf` — true, false, or nil.
+- `:intensity` — integer `1..16`, default `1`; `:sdf` — true, false, or nil; `:sdf-type` — `:sdf`, `:msdf`, or nil (nil preserves MSDF behavior).
 - `:warmup-ms` — nonnegative integer, default `2000`.
 - `:metrics` — HUD toggle; defaults to true for stress profiles and false for `showcase`.
 - `:summary` — clean-exit EDN toggle with the same profile-dependent default. A true summary collects samples even when `:metrics` is false.

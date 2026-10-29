@@ -20,8 +20,9 @@
 (defonce metrics-collector
   (metrics/new-collector {:profile :showcase :intensity 1 :sdf nil}))
 
-(defn load-profile! [profile & [{:keys [intensity sdf]}]]
-  (let [config (profiles/profile-config profile {:intensity (if (nil? intensity) 1 intensity) :sdf sdf})]
+(defn load-profile! [profile & [{:keys [intensity sdf sdf-type]}]]
+  (let [config (profiles/profile-config profile {:intensity (if (nil? intensity) 1 intensity)
+                                                 :sdf sdf :sdf-type sdf-type})]
     (swap! state merge config)
     (swap! metrics-collector update :options merge config)
     config))
@@ -138,11 +139,12 @@
 
 (defn start!
   [& [{:keys [font-path port width height bounds capture-dir max-frames auto-quit-ms
-              profile intensity sdf warmup-ms metrics summary]}]]
+              profile intensity sdf sdf-type warmup-ms metrics summary]}]]
   (when-not font-path
     (throw (ex-info "A TTF/OTF font path is required" {:option :font-path})))
   (let [config (profiles/profile-config (if (nil? profile) :showcase profile)
-                                        {:intensity (if (nil? intensity) 1 intensity) :sdf sdf})
+                                        {:intensity (if (nil? intensity) 1 intensity)
+                                         :sdf sdf :sdf-type sdf-type})
         warmup-ms (if (nil? warmup-ms) 2000 warmup-ms)
         stress? (not= :showcase (:profile config))
         metrics-enabled? (if (nil? metrics) stress? (true? metrics))
@@ -222,7 +224,7 @@
   (str "Usage: slipstream.example.demoscene <font.ttf> [--port N] "
        "[--capture-dir PATH] [--max-frames N] [--auto-quit-ms N] "
        "[--profile showcase|geometry|text|compositor|shader|all] "
-       "[--intensity N] [--sdf true|false] [--warmup-ms N] "
+       "[--intensity N] [--sdf true|false] [--sdf-type sdf|msdf] [--warmup-ms N] "
        "[--metrics true|false] [--summary true|false]\n"))
 
 (defn- option-integer [option value]
@@ -270,6 +272,8 @@
                                  (assoc result :intensity (option-integer option value)))
             "--sdf" (recur (vec (drop 2 remaining))
                            (assoc result :sdf (option-boolean option value)))
+            "--sdf-type" (recur (vec (drop 2 remaining))
+                                (assoc result :sdf-type (keyword value)))
             "--warmup-ms" (recur (vec (drop 2 remaining))
                                  (assoc result :warmup-ms (option-integer option value)))
             "--metrics" (recur (vec (drop 2 remaining))

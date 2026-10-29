@@ -75,6 +75,26 @@
     (is (= 65536 (:mesh-limit overflow)))
     (is (< 65536 (:estimated-vertices overflow)))))
 
+(deftest sdf-type-defaults-to-msdf-and-validates-explicit-choice
+  (is (= {:profile :geometry :intensity 1 :sdf true :sdf-type :sdf}
+         (profiles/profile-config :geometry {:sdf true :sdf-type :sdf})))
+  (doseq [sdf-type [:sdf :msdf]]
+    (is (= sdf-type
+           (:sdf-type (profiles/profile-config :geometry {:sdf-type sdf-type})))))
+  (doseq [sdf-type [false :unknown "sdf"]]
+    (is (= :invalid-sdf-type
+           (:reason (error-data #(profiles/profile-config :geometry
+                                                          {:sdf-type sdf-type}))))))
+  (let [geometry-elements (fn [sdf-type]
+                            (scene-elements
+                              (profiles/profile-scene
+                                (assoc (profile-state :geometry) :sdf true
+                                       :sdf-type sdf-type))))]
+    (is (every? #(= :msdf (:sdf-type %))
+                (filter #(= :shape (:tag %)) (geometry-elements nil))))
+    (is (every? #(= :sdf (:sdf-type %))
+                (filter #(= :shape (:tag %)) (geometry-elements :sdf))))))
+
 (deftest showcase-profile-is-the-existing-scene-without-new-workload
   (let [state (profile-state :showcase)]
     (is (= (visuals/scene-for-state state) (profiles/profile-scene state)))
@@ -174,14 +194,16 @@
          (demo/parse-args [test-font])))
   (is (= {:font-path test-font :port 0 :capture-dir nil
           :max-frames 2 :auto-quit-ms nil
-          :profile :all :intensity 3 :sdf true
+          :profile :all :intensity 3 :sdf true :sdf-type :sdf
           :warmup-ms 0 :metrics false :summary false}
          (demo/parse-args [test-font "--profile" "all" "--intensity" "3"
-                           "--sdf" "true" "--warmup-ms" "0" "--metrics" "false"
-                           "--summary" "false" "--port" "0" "--max-frames" "2"])))
+                           "--sdf" "true" "--sdf-type" "sdf" "--warmup-ms" "0"
+                           "--metrics" "false" "--summary" "false" "--port" "0"
+                           "--max-frames" "2"])))
   (doseq [args [[test-font "--profile" "unknown"]
                 [test-font "--intensity" "0"]
                 [test-font "--sdf" "yes"]
+                [test-font "--sdf-type" "yes"]
                 [test-font "--metrics" "yes"]
                 [test-font "--summary" "yes"]
                 [test-font "--warmup-ms" "-1"]]]
@@ -200,8 +222,12 @@
              (:reason (error-data #(demo/load-profile! :unknown {})))))
       (is (= :invalid-intensity
              (:reason (error-data #(demo/load-profile! :text {:intensity false})))))
-      (is (= {:profile :text :intensity 2 :sdf false}
-             (select-keys @demo/state [:profile :intensity :sdf])))
+      (is (= {:profile :text :intensity 2 :sdf false :sdf-type :sdf}
+             (demo/load-profile! :text {:intensity 2 :sdf false :sdf-type :sdf})))
+      (is (= :invalid-sdf-type
+             (:reason (error-data #(demo/load-profile! :text {:sdf-type false})))))
+      (is (= {:profile :text :intensity 2 :sdf false :sdf-type :sdf}
+             (select-keys @demo/state [:profile :intensity :sdf :sdf-type])))
       (finally
         (reset! demo/state original)))))
 

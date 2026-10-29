@@ -9,7 +9,7 @@
 (def ^:private geometry-segments-per-intensity 256)
 (def ^:private estimated-vertices-per-segment 16)
 
-(defn profile-config [profile {:keys [intensity sdf] :or {intensity 1}}]
+(defn profile-config [profile {:keys [intensity sdf sdf-type] :or {intensity 1}}]
   (when-not (some #{profile} profile-names)
     (throw (ex-info (str "Unknown demoscene profile: " (pr-str profile)
                          "; expected one of " (pr-str profile-names))
@@ -23,7 +23,12 @@
   (when-not (or (nil? sdf) (boolean? sdf))
     (throw (ex-info "Demoscene :sdf must be true, false, or nil"
                     {:reason :invalid-sdf :sdf sdf})))
-  {:profile profile :intensity intensity :sdf sdf})
+  (when-not (or (nil? sdf-type) (contains? #{:sdf :msdf} sdf-type))
+    (throw (ex-info "Demoscene :sdf-type must be :sdf, :msdf, or nil"
+                    {:reason :invalid-sdf-type :sdf-type sdf-type
+                     :valid-sdf-types [:sdf :msdf]})))
+  (cond-> {:profile profile :intensity intensity :sdf sdf}
+    (some? sdf-type) (assoc :sdf-type sdf-type)))
 
 (defn- validate-mesh-budget! [{:keys [profile intensity]}]
   (let [estimated (* intensity geometry-segments-per-intensity
@@ -77,7 +82,7 @@
                             :color color
                             :texture-width 128})
               (:sdf state)
-              (assoc :sdf true :sdf-type :msdf :sdf-range 0.08
+              (assoc :sdf true :sdf-type (or (:sdf-type state) :msdf) :sdf-range 0.08
                      :effect {:id (+ 2000 i) :param 1.0 :sdf true :bleed 0.08
                               :fragment-hook visuals/sdf-fragment
                               :uniforms {:glow {:type :float :value 0.6}}}))]))

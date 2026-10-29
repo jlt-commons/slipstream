@@ -20,6 +20,7 @@
          :profile profile
          :intensity 16
          :sdf true
+         :sdf-type :sdf
          :font test-font
          :bounds bounds
          :aspect 1.6
@@ -68,7 +69,7 @@
                       (is (false? @(:released? resource)) (str "stale handle: " id))
                       (is (pos? (renderer/native-handle resource)))))
                   (println (pr-str
-                             {:profile profile :intensity 16 :sdf true
+                             {:profile profile :intensity 16 :sdf true :sdf-type :sdf
                               :counts (select-keys native-state
                                                    [:draw-commands :geometry-commands
                                                     :group-commands])
@@ -76,6 +77,47 @@
                                                      [:shader-compilations :resource-uploads
                                                       :paint-texture-uploads
                                                       :live-resources :live-effects])}))))))
+          (ui/unmount! root scene :scene)
+          (resources/dispose-tree! scene)
+          (is (zero? (:live-resources (renderer/frame-state context))))
+          (finally
+            (when-not (:disposed? @scene)
+              (ui/unmount! root scene :scene)
+              (resources/dispose-tree! scene))
+            (renderer/destroy! context)))))))
+
+(deftest native-small-msdf-smoke-releases-resources
+  (let [context (renderer/create-context
+                  {:title "slipstream small MSDF smoke" :width 96 :height 60
+                   :bounds bounds :visible false})
+        scene-state (r/atom (assoc (profile-state :geometry)
+                                   :intensity 1 :sdf-type :msdf))
+        scene (b/create! :scene {})]
+    (binding [sg/*context* context]
+      (let [root (ui/mount scene :scene [(fn [] (profiles/profile-scene @scene-state))])]
+        (try
+          (let [commands (draw-tree scene)]
+            (renderer/render! context commands)
+            (let [frame (renderer/capture! context)
+                  native-state (renderer/frame-state context)]
+              (is (= [192 120] [(:width frame) (:height frame)]))
+              (is (some (complement zero?) (:pixels frame)))
+              (is (= (count commands) (:draw-commands native-state)))
+              (is (pos? (:geometry-commands native-state)))
+              (is (pos? (:live-resources native-state)))
+              (doseq [[id widget] (widgets-by-id scene)]
+                (when-let [resource (:resource @widget)]
+                  (is (false? @(:released? resource)) (str "stale handle: " id))
+                  (is (pos? (renderer/native-handle resource)))))
+              (println (pr-str
+                         {:profile :geometry :intensity 1 :sdf true :sdf-type :msdf
+                          :counts (select-keys native-state
+                                               [:draw-commands :geometry-commands
+                                                :group-commands])
+                          :counters (select-keys native-state
+                                                 [:shader-compilations :resource-uploads
+                                                  :paint-texture-uploads
+                                                  :live-resources :live-effects])}))))
           (ui/unmount! root scene :scene)
           (resources/dispose-tree! scene)
           (is (zero? (:live-resources (renderer/frame-state context))))

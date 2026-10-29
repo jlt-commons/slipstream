@@ -274,22 +274,65 @@
       (is (pos? @actual-port))
       (is (= 42 (:lifecycle-eval @demo/state))))))
 
+(def ^:private capture-requests (atom []))
+
+(defn- drain-capture-requests! []
+  (let [requests @capture-requests]
+    (reset! capture-requests [])
+    (doseq [pending requests]
+      (deliver pending
+               (try
+                 (let [context (sg/current-context)]
+                   {:context context
+                    :close-requested? (renderer/should-close? context)
+                    :frame (renderer/capture! context)
+                    :native-state (renderer/frame-state context)})
+                 (catch Throwable error
+                   {:error error}))))))
+
 (defn- capture-live-frame []
   (let [pending (promise)]
-    (ui/on-gui
-      (fn []
-        (deliver pending
-                 (try
-                   (let [context (sg/current-context)]
-                     {:context context
-                      :close-requested? (renderer/should-close? context)
-                      :frame (renderer/capture! context)})
-                   (catch Throwable error
-                     {:error error})))))
+    (swap! capture-requests conj pending)
     (let [{:keys [error] :as result}
           (deref pending 5000 {:error (ex-info "Timed out capturing the live frame" {})})]
       (when error (throw error))
       result)))
+
+(defn- capture-frozen-frame []
+  (loop [remaining 20
+         previous (capture-live-frame)]
+    (let [current (capture-live-frame)
+          previous-hash (hash (vec (get-in previous [:frame :pixels])))
+          current-hash (hash (vec (get-in current [:frame :pixels])))]
+      (is (identical? (:context previous) (:context current)))
+      (if (= previous-hash current-hash)
+        current
+        (if (zero? remaining)
+          (do
+            (is (= previous-hash current-hash)
+                "the live frame did not become stable after hiding metrics")
+            current)
+          (recur (dec remaining) current))))))
+
+(defn- capture-profile-frame [baseline]
+  (let [baseline-hash (hash (vec (get-in baseline [:frame :pixels])))
+        baseline-draws (get-in baseline [:native-state :draw-commands])]
+    (loop [remaining 20
+           current (capture-live-frame)]
+      (let [current-hash (hash (vec (get-in current [:frame :pixels])))
+            current-draws (get-in current [:native-state :draw-commands])]
+        (is (identical? (:context baseline) (:context current)))
+        (if (and (not= baseline-hash current-hash)
+                 (> current-draws baseline-draws))
+          current
+          (if (zero? remaining)
+            (do
+              (is (not= baseline-hash current-hash)
+                  "the selected profile did not change the rendered frame")
+              (is (> current-draws baseline-draws)
+                  "the selected text workload did not reach native rendering")
+              current)
+            (recur (dec remaining) current)))))))
 
 (defn- exercise-live-nrepl [port]
   (let [transport (nrepl/connect "127.0.0.1" port)]
@@ -350,17 +393,14 @@
                 "the redefined palette must render in the existing window")
             (evaluate (str "(swap! slipstream.example.demoscene/state assoc "
                            ":metrics false :metrics-text nil)"))
-            (let [{frozen-context :context frozen-frame :frame} (capture-live-frame)
-                  {stable-context :context stable-frame :frame} (capture-live-frame)]
-              (is (identical? after-context frozen-context))
-              (is (identical? frozen-context stable-context))
-              (is (= (hash (vec (:pixels frozen-frame)))
-                     (hash (vec (:pixels stable-frame))))
-                  "identity update-state and hidden metrics must freeze the rendered frame")
+            (let [{stable-context :context stable-frame :frame :as stable}
+                  (capture-frozen-frame)]
+              (is (identical? after-context stable-context))
               (is (= [{:profile :text :intensity 2 :sdf false}]
                      (evaluate (str "(slipstream.example.demoscene/load-profile! :text "
                                     "{:intensity 2 :sdf false})"))))
-              (let [{profile-context :context profile-frame :frame} (capture-live-frame)]
+              (let [{profile-context :context profile-frame :frame}
+                    (capture-profile-frame stable)]
                 (is (identical? stable-context profile-context))
                 (is (not= (hash (vec (:pixels stable-frame)))
                           (hash (vec (:pixels profile-frame))))
@@ -393,6 +433,7 @@
                     ui/run
                     (fn [root-fn & {:as opts}]
                       (let [original-on-start (:on-start opts)
+                            original-after-render (:after-render opts)
                             opts (assoc opts :visible false :max-frames nil
                                         :on-start
                                         (fn []
@@ -404,7 +445,11 @@
                                                        (exercise-live-nrepl @actual-port))
                                               (catch Throwable error
                                                 (deliver client-result {:error error})
-                                                (demo/stop!))))))]
+                                                (demo/stop!)))))
+                                        :after-render
+                                        (fn []
+                                          (when original-after-render (original-after-render))
+                                          (drain-capture-requests!)))]
                         (apply real-run root-fn (mapcat identity opts))))]
         (is (pos? (:port (demo/start! {:font-path test-font :port 0 :metrics true
                                       :warmup-ms 0 :width 320 :height 200
@@ -417,6 +462,7 @@
         (alter-var-root #'visuals/update-state (constantly original-update-state))
         (alter-var-root #'visuals/palette (constantly original-palette))
         (reset! demo/state original-state)
+        (reset! capture-requests [])
         (demo/stop!)))))
 
 (deftest capture-dir-writes-a-real-ppm-from-the-running-window

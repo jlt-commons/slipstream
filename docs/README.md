@@ -39,7 +39,7 @@ jolt -m slipstream.example.reactive "$SLIPSTREAM_TEST_FONT" --auto-quit-ms 10000
 jolt -m slipstream.example.demoscene "$SLIPSTREAM_TEST_FONT"
 ```
 
-The reference example accepts `--curve-precision 16|32`, `--frames N`, and `--capture PATH`. The reactive example accepts `--auto-quit-ms N` and `--capture-dir PATH`. The demoscene additionally accepts `--port N`, `--max-frames N`, `--profile`, `--intensity`, `--sdf`, `--warmup-ms`, `--metrics`, and `--summary`. It starts a rich nREPL and supports live redefinition plus same-context workload switching; see the [performance and live-development guide](demoscene.md).
+The reference example accepts `--curve-precision 16|32`, `--frames N`, and `--capture PATH`. The reactive example accepts `--auto-quit-ms N` and `--capture-dir PATH`. The demoscene additionally accepts `--port N`, `--max-frames N`, `--profile`, `--intensity`, `--sdf`, `--sdf-type`, `--warmup-ms`, `--metrics`, and `--summary`. It starts a rich nREPL and supports live redefinition plus same-context workload switching; see the [performance and live-development guide](demoscene.md).
 
 ## Data conventions
 
