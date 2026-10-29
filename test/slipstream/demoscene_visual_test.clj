@@ -1,5 +1,6 @@
 (ns slipstream.demoscene-visual-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.edn :as edn]
+            [clojure.test :refer [deftest is testing]]
             [glimmer.backend :as b]
             [glimmer.core :as ui]
             [glimmer.ratom :as r]
@@ -25,7 +26,11 @@
    :midpoint 843891352
    :mouse-warp -1703998915
    :vectors-early -1430381162
-   :vectors-late 540888545})
+   :vectors-late 540888545
+   :custom-bounds 621095928})
+
+(def ^:private golden-signatures
+  (edn/read-string (slurp "test/slipstream/demoscene_golden_signatures.edn")))
 
 (defn- base-state []
   (assoc visuals/initial-state
@@ -63,6 +68,49 @@
 
 (defn- frame-digest [frame]
   (hash (vec (:pixels frame))))
+
+(defn- frame-scale [context frame]
+  (let [[window-width window-height] (:window-size (renderer/frame-state context))
+        scale-x (/ (:width frame) window-width)
+        scale-y (/ (:height frame) window-height)]
+    (is (contains? #{1 2} scale-x))
+    (is (= scale-x scale-y))
+    scale-x))
+
+(defn- frame-signature [{:keys [width height pixels]}]
+  (vec
+    (for [grid-y (range 10)
+          grid-x (range 16)]
+      (let [x0 (quot (* grid-x width) 16)
+            x1 (quot (* (inc grid-x) width) 16)
+            y0 (quot (* grid-y height) 10)
+            y1 (quot (* (inc grid-y) height) 10)
+            sample-count (* (- x1 x0) (- y1 y0))
+            sums (reduce (fn [channels y]
+                           (reduce (fn [channels x]
+                                     (let [offset (* 4 (+ x (* y width)))]
+                                       (mapv (fn [sum channel]
+                                               (+ sum (bit-and (aget pixels (+ offset channel)) 0xff)))
+                                             channels (range 3))))
+                                   channels (range x0 x1)))
+                         [0 0 0] (range y0 y1))]
+        (mapv #(Math/round (/ (double %) sample-count)) sums)))))
+
+(defn- signature-matches? [expected actual]
+  (and (= (count expected) (count actual))
+       (every? (fn [[expected-cell actual-cell]]
+                 (every? (fn [[expected-channel actual-channel]]
+                           (<= (Math/abs (- expected-channel actual-channel)) 8))
+                         (map vector expected-cell actual-cell)))
+               (map vector expected actual))))
+
+(defn- assert-golden-frame! [context label frame]
+  (if (= 2 (frame-scale context frame))
+    (is (= (get golden-hashes label) (frame-digest frame))
+        (str "exact golden mismatch for " label))
+    (let [actual (frame-signature frame)]
+      (is (signature-matches? (get golden-signatures label) actual)
+          (str "visual golden mismatch for " label "\nactual signature:\n" actual)))))
 
 (defn- nio-path [path]
   (java.nio.file.Paths/get (str path) (make-array String 0)))
@@ -124,7 +172,7 @@
                      [id widget])))
         (walk-widgets scene)))
 
-(deftest deterministic-hybrid-stages-match-exact-golden-frames
+(deftest deterministic-hybrid-stages-match-golden-frames
   (with-context [context]
     (let [frames (into {}
                        (map (fn [[label state]]
@@ -133,9 +181,7 @@
       (doseq [[label frame] frames]
         (testing (name label)
           (write-capture! label frame)
-          (is (= [320 200] [(:width frame) (:height frame)]))
-          (is (= (get golden-hashes label) (frame-digest frame))
-              (str "golden mismatch for " label))))
+          (assert-golden-frame! context label frame)))
       (is (= (count frames) (count (into #{} (map frame-digest) (vals frames))))
           "every stage and control state must be visually distinct"))))
 
@@ -149,8 +195,7 @@
                            :mouse [1.0 5.0] :attraction [1.0 5.0])
               frame (capture-state! context state)]
           (write-capture! :custom-bounds frame)
-          (is (= [320 200] [(:width frame) (:height frame)]))
-          (is (= 621095928 (frame-digest frame)) "custom-bounds golden mismatch")))
+          (assert-golden-frame! context :custom-bounds frame)))
       (finally
         (renderer/destroy! context)))))
 

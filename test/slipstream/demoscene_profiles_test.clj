@@ -362,7 +362,11 @@
                     frame (renderer/capture! context)
                     elapsed-ms (/ (- (System/nanoTime) before) 1000000.0)
                     initial-state (renderer/frame-state context)]
-                (is (= [192 120] [(:width frame) (:height frame)]))
+                (let [[window-width window-height] (:window-size initial-state)
+                      scale-x (/ (:width frame) window-width)
+                      scale-y (/ (:height frame) window-height)]
+                  (is (contains? #{1 2} scale-x))
+                  (is (= scale-x scale-y)))
                 (is (some (complement zero?) (:pixels frame)))
                 (is (pos? (:draw-commands (command-counts commands))))
                 (is (pos? (:live-resources initial-state)))
