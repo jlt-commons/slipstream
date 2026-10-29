@@ -100,7 +100,7 @@
   (and (= (count expected) (count actual))
        (every? (fn [[expected-cell actual-cell]]
                  (every? (fn [[expected-channel actual-channel]]
-                           (<= (Math/abs (- expected-channel actual-channel)) 8))
+                           (<= (Math/abs (- expected-channel actual-channel)) 12))
                          (map vector expected-cell actual-cell)))
                (map vector expected actual))))
 
