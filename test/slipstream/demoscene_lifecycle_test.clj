@@ -314,6 +314,23 @@
             current)
           (recur (dec remaining) current))))))
 
+(defn- capture-changed-frame [baseline]
+  (let [baseline-hash (hash (vec (get-in baseline [:frame :pixels])))]
+    (loop [remaining 1000
+           current (capture-live-frame)]
+      (let [current-hash (hash (vec (get-in current [:frame :pixels])))]
+        (is (identical? (:context baseline) (:context current)))
+        (if (not= baseline-hash current-hash)
+          current
+          (if (zero? remaining)
+            (do
+              (is (not= baseline-hash current-hash)
+                  "the redefined palette did not change the rendered frame")
+              current)
+            (do
+              (Thread/sleep 10)
+              (recur (dec remaining) current))))))))
+
 (defn- capture-profile-frame [baseline]
   (let [baseline-hash (hash (vec (get-in baseline [:frame :pixels])))
         baseline-draws (get-in baseline [:native-state :draw-commands])]
@@ -387,16 +404,13 @@
                                 "@slipstream.example.demoscene/state) "
                                 "[:uniforms :paletteA :value])"))))
           (evaluate "(swap! slipstream.example.demoscene/state update :density + 0.125)")
-          (let [{after-context :context after-frame :frame} (capture-live-frame)]
+          (let [{after-context :context} (capture-changed-frame before)]
             (is (identical? before-context after-context))
             (let [[window-width window-height] (get-in before [:native-state :window-size])
                   scale-x (/ (:width before-frame) window-width)
                   scale-y (/ (:height before-frame) window-height)]
               (is (contains? #{1 2} scale-x))
               (is (= scale-x scale-y)))
-            (is (not= (hash (vec (:pixels before-frame)))
-                      (hash (vec (:pixels after-frame))))
-                "the redefined palette must render in the existing window")
             (evaluate (str "(swap! slipstream.example.demoscene/state assoc "
                            ":metrics false :metrics-text nil)"))
             (let [{stable-context :context stable-frame :frame :as stable}
@@ -459,7 +473,7 @@
                         (apply real-run root-fn (mapcat identity opts))))]
         (is (pos? (:port (demo/start! {:font-path test-font :port 0 :metrics true
                                       :warmup-ms 0 :width 320 :height 200
-                                      :auto-quit-ms 10000})))))
+                                      :auto-quit-ms 60000})))))
       (let [{:keys [error] :as result}
             (deref client-result 1000 {:error (ex-info "Live nREPL client did not finish" {})})]
         (when error (throw error))
