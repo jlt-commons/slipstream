@@ -221,6 +221,25 @@
       (finally
         (reset! demo/state original)))))
 
+(deftest start-rejects-false-profile-and-warmup-before-starting-services
+  (let [original @demo/state
+        starts (atom 0)]
+    (try
+      (with-redefs [jolt-nrepl/start
+                    (fn [& _]
+                      (swap! starts inc)
+                      (with-meta (fn [] nil) {:port 7888 :port-file nil}))
+                    ui/run (fn [& _] nil)]
+        (is (= :unknown-profile
+               (:reason (error-data #(demo/start! {:font-path test-font
+                                                   :profile false})))))
+        (is (= :warmup-ms
+               (:option (error-data #(demo/start! {:font-path test-font
+                                                   :warmup-ms false}))))))
+      (is (zero? @starts))
+      (finally
+        (reset! demo/state original)))))
+
 (deftest default-showcase-start-does-not-sample-or-append-metrics
   (let [original @demo/state
         scenes (atom [])

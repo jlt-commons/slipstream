@@ -71,7 +71,8 @@
                :as state}]
            (let [started-at (or started-at now)
                  warmed-up? (>= (- now started-at) warmup-ms)
-                 measured? (and previous-at warmed-up?)
+                 measured? (and previous-at warmed-up?
+                                  (>= (- previous-at started-at) warmup-ms))
                  durations (if measured?
                              (bounded-conj (:durations state)
                                            (max 0.0 (double (- now previous-at)))

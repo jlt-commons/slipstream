@@ -141,9 +141,9 @@
               profile intensity sdf warmup-ms metrics summary]}]]
   (when-not font-path
     (throw (ex-info "A TTF/OTF font path is required" {:option :font-path})))
-  (let [config (profiles/profile-config (or profile :showcase)
+  (let [config (profiles/profile-config (if (nil? profile) :showcase profile)
                                         {:intensity (if (nil? intensity) 1 intensity) :sdf sdf})
-        warmup-ms (or warmup-ms 2000)
+        warmup-ms (if (nil? warmup-ms) 2000 warmup-ms)
         stress? (not= :showcase (:profile config))
         metrics-enabled? (if (nil? metrics) stress? (true? metrics))
         summary-enabled? (if (nil? summary) stress? (true? summary))

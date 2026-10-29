@@ -48,9 +48,9 @@
     (metrics/sample-frame! collector (frame-state) 2010)
     (let [snapshot (metrics/metrics-snapshot collector)]
       (is (not (:warming-up? snapshot)))
-      (is (= 2 (:sample-count snapshot)))
-      (is (= 5.5 (:mean-frame-ms snapshot)))
-      (is (= {:p50 1.0 :p95 10.0 :p99 10.0}
+      (is (= 1 (:sample-count snapshot)))
+      (is (= 10.0 (:mean-frame-ms snapshot)))
+      (is (= {:p50 10.0 :p95 10.0 :p99 10.0}
              (:frame-percentiles-ms snapshot))))))
 
 (deftest sample-window-evicts-oldest-durations
