@@ -15,6 +15,7 @@ Slipstream is a data-oriented Jolt wrapper for Slughorn. It has four complementa
 - [Live hybrid demoscene and performance profiles](demoscene.md) — controls, visual architecture, rich nREPL development, bounded stress workloads, metrics/warm-up, EDN summaries, lifecycle, and capture workflow.
 - [Rendering and effects](rendering.md) — low-level GL contexts, draw commands, GPU resources, and custom shader effects.
 - [Raw FFI and commands](ffi.md) — raw `slipstream.ffi` bindings, ABI layouts, command-line entry points, and compatibility behavior.
+- [Continuous integration](ci.md) — the Ubuntu/Xvfb workflow, pinned dependencies, and full native/OpenGL verification.
 
 ## Installation and verification
 

@@ -57,6 +57,8 @@ SLIPSTREAM_TEST_FONT=/System/Library/Fonts/Geneva.ttf jolt parity
 
 `jolt test` runs unit, native integration, exact golden, and parity-contract tests. `jolt parity` compares Slipstream's atlas, mesh, output, and reference-frame behavior with the upstream Slughorn example.
 
+Every push and pull request also runs the [GitHub Actions CI workflow](docs/ci.md), which builds the native library and runs tests and parity under Xvfb on Ubuntu.
+
 Run the reference, reactive, and live demoscene examples:
 
 ```sh

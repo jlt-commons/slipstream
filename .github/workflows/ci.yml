@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Ubuntu / native + OpenGL
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SLUGHORN_HOME: /tmp/slughorn
+      SLIPSTREAM_TEST_FONT: /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+      DISPLAY: :99
+      LIBGL_ALWAYS_SOFTWARE: "1"
+
+    steps:
+      - name: Check out Slipstream
+        uses: actions/checkout@v4
+
+      - name: Install native and display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ca-certificates clang cmake curl fonts-dejavu-core git \
+            libfreetype6-dev libgl1-mesa-dri libglu1-mesa-dev libssl-dev \
+            nlohmann-json3-dev pkg-config xorg-dev xvfb
+
+      - name: Install Jolt v0.8.23 and verify its checksum
+        run: |
+          mkdir -p /tmp/jolt
+          base="https://github.com/jolt-lang/jolt/releases/download/v0.8.23/jolt-v0.8.23-x86_64-linux.tar.gz"
+          curl -fsSL "$base" -o /tmp/jolt/jolt.tar.gz
+          curl -fsSL "$base.sha256" -o /tmp/jolt/jolt.tar.gz.sha256
+          (cd /tmp/jolt && sha256sum -c jolt.tar.gz.sha256)
+          tar -xzf /tmp/jolt/jolt.tar.gz -C /tmp/jolt
+          sudo install -m 0755 /tmp/jolt/jolt-v0.8.23-x86_64-linux/jolt /usr/local/bin/jolt
+          jolt --version
+
+      - name: Clone pinned Slughorn and submodules
+        run: |
+          git clone --recursive https://github.com/AlphaPixel/slughorn.git "$SLUGHORN_HOME"
+          git -C "$SLUGHORN_HOME" checkout 704ef1d96751a5a5a38f3cff0f0ded4e7b6893dc
+          git -C "$SLUGHORN_HOME" submodule update --init --recursive
+          test -f "$SLUGHORN_HOME/slughorn/slughorn.cpp"
+          test -f "$SLUGHORN_HOME/example/slughorn-example-glfw.cpp"
+
+      - name: Start virtual display
+        run: |
+          Xvfb "$DISPLAY" -screen 0 1280x720x24 >/tmp/slipstream-xvfb.log 2>&1 &
+          echo "$!" > /tmp/slipstream-xvfb.pid
+          sleep 2
+
+      - name: Resolve Jolt dependencies
+        run: jolt -P
+
+      - name: Build native library
+        run: jolt native
+
+      - name: Run full test suite
+        run: jolt test
+
+      - name: Run C++ and rendered-frame parity
+        run: jolt parity
+
+      - name: Stop virtual display
+        if: always()
+        run: |
+          if test -f /tmp/slipstream-xvfb.pid; then
+            kill "$(cat /tmp/slipstream-xvfb.pid)" || true
+          fi
