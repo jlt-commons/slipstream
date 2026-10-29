@@ -97,7 +97,7 @@ After a clean window close or `stop!`, summary-enabled runs print exactly one ED
 ```clojure
 {:profile :geometry
  :intensity 2
- :options {:profile :geometry :intensity 2 :sdf nil
+ :options {:profile :geometry :intensity 2 :sdf nil :sdf-type :msdf
            :warmup-ms 1000 :metrics true :summary true}
  :initialization-ms 184.2
  :warmup-ms 1000
@@ -191,7 +191,7 @@ Switch workloads in the same native window, inspect a plain-data snapshot, then 
 (demo/load-profile! :showcase)
 ```
 
-`load-profile!` validates before changing state, updates the existing ratom, and returns `{:profile ... :intensity ... :sdf ...}` plus an explicitly supplied `:sdf-type`. Omitted intensity defaults to `1`; omitted SDF is nil; omitted SDF type preserves existing MSDF behavior. Valid types are `:sdf` and `:msdf`; other values, including false, are rejected before state changes. Reactive reconciliation renders the new workload without recreating the window, nREPL server, or native context. Existing content caches remain available. Reset after each switch so percentiles and deltas do not mix workloads; native cumulative counters remain visible for cache/churn analysis. Snapshot keys and interpretation are described above.
+`load-profile!` validates before changing state, updates the existing ratom, and returns `{:profile ... :intensity ... :sdf ... :sdf-type ...}`. Omitted intensity defaults to `1`; omitted SDF is nil; omitted or nil SDF type is normalized to `:msdf`, including when switching back after `:sdf`. Valid types are `:sdf` and `:msdf`; other values, including false, are rejected before state changes. Reactive reconciliation renders the new workload without recreating the window, nREPL server, or native context. Existing content caches remain available. Reset after each switch so percentiles and deltas do not mix workloads; native cumulative counters remain visible for cache/churn analysis. Snapshot keys and interpretation are described above.
 
 These functions run ordinary Clojure/Jolt code on nREPL workers. Do not call native context operations directly from those workers; use `ui/on-gui` for GUI work.
 

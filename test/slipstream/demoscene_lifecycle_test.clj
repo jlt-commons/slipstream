@@ -396,7 +396,7 @@
             (let [{stable-context :context stable-frame :frame :as stable}
                   (capture-frozen-frame)]
               (is (identical? after-context stable-context))
-              (is (= [{:profile :text :intensity 2 :sdf false}]
+              (is (= [{:profile :text :intensity 2 :sdf false :sdf-type :msdf}]
                      (evaluate (str "(slipstream.example.demoscene/load-profile! :text "
                                     "{:intensity 2 :sdf false})"))))
               (let [{profile-context :context profile-frame :frame}
@@ -527,7 +527,7 @@
     (is (= 1 (count summary-lines)) output)
     (is (= {:profile :geometry :intensity 2}
            (select-keys summary [:profile :intensity])))
-    (is (= {:profile :geometry :intensity 2 :sdf nil
+    (is (= {:profile :geometry :intensity 2 :sdf nil :sdf-type :msdf
             :warmup-ms 0 :metrics false :summary true}
            (:options summary)))
     (is (number? (:initialization-ms summary)))

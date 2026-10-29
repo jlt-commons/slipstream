@@ -213,7 +213,7 @@
   (let [original @demo/state
         state-object demo/state]
     (try
-      (is (= {:profile :text :intensity 2 :sdf false}
+      (is (= {:profile :text :intensity 2 :sdf false :sdf-type :msdf}
              (demo/load-profile! :text {:intensity 2 :sdf false})))
       (is (= {:profile :text :intensity 2 :sdf false}
              (select-keys @demo/state [:profile :intensity :sdf])))
@@ -228,6 +228,36 @@
              (:reason (error-data #(demo/load-profile! :text {:sdf-type false})))))
       (is (= {:profile :text :intensity 2 :sdf false :sdf-type :sdf}
              (select-keys @demo/state [:profile :intensity :sdf :sdf-type])))
+      (finally
+        (reset! demo/state original)))))
+
+(deftest load-profile-restores-msdf-when-type-is-omitted
+  (let [original @demo/state]
+    (try
+      (demo/load-profile! :geometry {:sdf true :sdf-type :sdf})
+      (is (= :sdf (:sdf-type @demo/state)))
+      (is (= {:profile :geometry :intensity 1 :sdf true :sdf-type :msdf}
+             (demo/load-profile! :geometry {:sdf true})))
+      (is (= :msdf (:sdf-type @demo/state)))
+      (is (every? #(= :msdf (:sdf-type %))
+                  (filter #(= :shape (:tag %))
+                          (scene-elements (profiles/profile-scene @demo/state)))))
+      (is (= :invalid-sdf-type
+             (:reason (error-data #(demo/load-profile! :geometry {:sdf-type false})))))
+      (is (= :msdf (:sdf-type @demo/state)))
+      (finally
+        (reset! demo/state original)))))
+
+(deftest start-normalizes-omitted-sdf-type-to-msdf
+  (let [original @demo/state]
+    (try
+      (with-redefs [jolt-nrepl/start
+                    (fn [& _]
+                      (with-meta (fn [] nil) {:port 7888 :port-file nil}))
+                    ui/run (fn [& _] nil)]
+        (demo/start! {:font-path test-font :profile :geometry :sdf true})
+        (is (= :msdf (:sdf-type @demo/state)))
+        (is (= :msdf (get-in @demo/metrics-collector [:options :sdf-type]))))
       (finally
         (reset! demo/state original)))))
 
@@ -261,7 +291,10 @@
                                                    :profile false})))))
         (is (= :warmup-ms
                (:option (error-data #(demo/start! {:font-path test-font
-                                                   :warmup-ms false}))))))
+                                                   :warmup-ms false})))))
+        (is (= :invalid-sdf-type
+               (:reason (error-data #(demo/start! {:font-path test-font
+                                                   :sdf-type false}))))))
       (is (zero? @starts))
       (finally
         (reset! demo/state original)))))

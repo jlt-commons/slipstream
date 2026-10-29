@@ -22,7 +22,8 @@
 
 (defn load-profile! [profile & [{:keys [intensity sdf sdf-type]}]]
   (let [config (profiles/profile-config profile {:intensity (if (nil? intensity) 1 intensity)
-                                                 :sdf sdf :sdf-type sdf-type})]
+                                                 :sdf sdf
+                                                 :sdf-type (if (nil? sdf-type) :msdf sdf-type)})]
     (swap! state merge config)
     (swap! metrics-collector update :options merge config)
     config))
@@ -144,7 +145,8 @@
     (throw (ex-info "A TTF/OTF font path is required" {:option :font-path})))
   (let [config (profiles/profile-config (if (nil? profile) :showcase profile)
                                         {:intensity (if (nil? intensity) 1 intensity)
-                                         :sdf sdf :sdf-type sdf-type})
+                                         :sdf sdf
+                                         :sdf-type (if (nil? sdf-type) :msdf sdf-type)})
         warmup-ms (if (nil? warmup-ms) 2000 warmup-ms)
         stress? (not= :showcase (:profile config))
         metrics-enabled? (if (nil? metrics) stress? (true? metrics))
