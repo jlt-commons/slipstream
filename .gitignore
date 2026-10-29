@@ -1,3 +1,4 @@
+.jolt/
 /native/build/
 /native/libslipstream.dylib
 /native/libslipstream.so
