@@ -324,6 +324,29 @@
       (finally
         (reset! demo/state original)))))
 
+(deftest disabling-metrics-at-runtime-stops-sampling-and-hud-updates
+  (let [original @demo/state
+        samples (atom 0)]
+    (try
+      (with-redefs [jolt-nrepl/start
+                    (fn [& _] (with-meta (fn [] nil) {:port 7888 :port-file nil}))
+                    sg/current-context (constantly :native-context)
+                    renderer/input-snapshot (fn [_] {})
+                    renderer/cursor->bounds (fn [_ _] [0.75 0.5])
+                    renderer/frame-state (fn [_] (swap! samples inc) {})
+                    ui/run
+                    (fn [_root-fn & {:as opts}]
+                      ((:after-render opts))
+                      (is (= 1 @samples))
+                      (is (string? (:metrics-text @demo/state)))
+                      (swap! demo/state assoc :metrics false :metrics-text nil)
+                      ((:after-render opts)))]
+        (demo/start! {:font-path test-font :metrics true :summary false}))
+      (is (= 1 @samples))
+      (is (nil? (:metrics-text @demo/state)))
+      (finally
+        (reset! demo/state original)))))
+
 (defn- draw-tree [scene]
   ((var-get #'sg/draw-tree) scene))
 

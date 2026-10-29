@@ -338,14 +338,6 @@
            current (capture-live-frame)]
       (let [current-hash (hash (vec (get-in current [:frame :pixels])))
             current-draws (get-in current [:native-state :draw-commands])]
-        (when (zero? (mod remaining 250))
-          (println "profile-capture-diagnostic"
-                   (pr-str {:remaining remaining
-                            :baseline-hash baseline-hash :current-hash current-hash
-                            :baseline-draws baseline-draws :current-draws current-draws
-                            :state (select-keys @demo/state [:profile :intensity :sdf :sdf-type
-                                                             :metrics :metrics-text])
-                            :queued (count @(:work-queue (:context current)))})))
         (is (identical? (:context baseline) (:context current)))
         (if (and (not= baseline-hash current-hash)
                  (> current-draws baseline-draws))

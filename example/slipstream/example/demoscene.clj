@@ -214,8 +214,9 @@
                                        (reset! initialization-ms
                                                (/ (- (System/nanoTime) started-at) 1000000.0)))
                                      (advance-from-native-input! previous-frame scene-bounds)
-                                     (sample-metrics! (or metrics-enabled? summary-enabled?)
-                                                      metrics-enabled?)
+                                     (let [metrics? (:metrics @state)]
+                                       (sample-metrics! (or metrics? summary-enabled?)
+                                                        metrics?))
                                      (maybe-capture! capture-dir capture-state))
                     :max-frames max-frames
                     :auto-quit-ms auto-quit-ms))
