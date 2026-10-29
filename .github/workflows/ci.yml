@@ -35,16 +35,16 @@ jobs:
         run: |
           mkdir -p /tmp/jolt
           base="https://github.com/jolt-lang/jolt/releases/download/v0.8.23/jolt-v0.8.23-x86_64-linux.tar.gz"
-          curl -fsSL "$base" -o /tmp/jolt/jolt.tar.gz
+          curl -fsSL "$base" -o /tmp/jolt/jolt-v0.8.23-x86_64-linux.tar.gz
           curl -fsSL "$base.sha256" -o /tmp/jolt/jolt.tar.gz.sha256
           (cd /tmp/jolt && sha256sum -c jolt.tar.gz.sha256)
-          tar -xzf /tmp/jolt/jolt.tar.gz -C /tmp/jolt
+          tar -xzf /tmp/jolt/jolt-v0.8.23-x86_64-linux.tar.gz -C /tmp/jolt
           sudo install -m 0755 /tmp/jolt/jolt-v0.8.23-x86_64-linux/jolt /usr/local/bin/jolt
           jolt --version
 
       - name: Clone pinned Slughorn and submodules
         run: |
-          git clone --recursive https://github.com/AlphaPixel/slughorn.git "$SLUGHORN_HOME"
+          git clone https://github.com/AlphaPixel/slughorn.git "$SLUGHORN_HOME"
           git -C "$SLUGHORN_HOME" checkout 704ef1d96751a5a5a38f3cff0f0ded4e7b6893dc
           git -C "$SLUGHORN_HOME" submodule update --init --recursive
           test -f "$SLUGHORN_HOME/slughorn/slughorn.cpp"
@@ -54,7 +54,20 @@ jobs:
         run: |
           Xvfb "$DISPLAY" -screen 0 1280x720x24 >/tmp/slipstream-xvfb.log 2>&1 &
           echo "$!" > /tmp/slipstream-xvfb.pid
-          sleep 2
+          for attempt in $(seq 1 30); do
+            if test -S /tmp/.X11-unix/X99 && kill -0 "$(cat /tmp/slipstream-xvfb.pid)"; then
+              break
+            fi
+            if ! kill -0 "$(cat /tmp/slipstream-xvfb.pid)"; then
+              cat /tmp/slipstream-xvfb.log
+              exit 1
+            fi
+            sleep 1
+          done
+          if ! test -S /tmp/.X11-unix/X99; then
+            cat /tmp/slipstream-xvfb.log
+            exit 1
+          fi
 
       - name: Resolve Jolt dependencies
         run: jolt -P
