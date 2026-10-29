@@ -29,7 +29,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             ca-certificates clang cmake curl fonts-dejavu-core git \
             libfreetype6-dev libgl1-mesa-dri libglu1-mesa-dev libssl-dev \
-            libwayland-bin nlohmann-json3-dev pkg-config wayland-protocols xorg-dev xvfb
+            libwayland-bin libwayland-dev libxkbcommon-dev nlohmann-json3-dev \
+            pkg-config wayland-protocols xorg-dev xvfb
 
       - name: Install Jolt v0.8.23 and verify its checksum
         run: |
