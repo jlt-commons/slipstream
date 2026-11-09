@@ -19,10 +19,10 @@ Slipstream is a data-oriented Jolt wrapper for Slughorn. It has four complementa
 
 ## Installation and verification
 
-Requirements are Jolt, a C++20 compiler/CMake, FreeType, and a Slughorn checkout. The build fetches GLFW, GLAD, msdfgen, and Glimmer. `nlohmann/json.hpp` comes from Slughorn's submodule or a system package.
+Requirements are Jolt, a C++20 compiler/CMake, FreeType, and git. The build fetches Slughorn (into `vendor/slughorn`, unless `SLUGHORN_HOME` names a checkout), GLFW, GLAD, msdfgen, and Glimmer. `nlohmann/json.hpp` comes from Slughorn's submodule or a system package.
 
 ```sh
-export SLUGHORN_HOME="$HOME/src/slughorn"       # optional when already the default
+export SLUGHORN_HOME="$HOME/src/slughorn"       # optional; vendor/slughorn is fetched otherwise
 export SLIPSTREAM_TEST_FONT=/System/Library/Fonts/Geneva.ttf
 jolt -P
 jolt native
@@ -30,7 +30,7 @@ jolt test
 jolt parity
 ```
 
-Normal dependency resolution uses the versioned Glimmer Git dependency. The `:dev` alias instead uses the developer-local checkout in `deps.edn`.
+Normal dependency resolution uses the versioned Glimmer Git dependency. The `:dev` alias instead uses a Glimmer checkout at `../glimmer`.
 
 Run the examples:
 

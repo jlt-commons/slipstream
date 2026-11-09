@@ -10,34 +10,38 @@ Screenshot from a [vector-feedback](https://github.com/jasalt/vector-feedback) i
   <img src="img/screenshot.jpg" alt="samizdat logo" width="600">
 </p>
 
+## Using it from another project
+
+Add slipstream as a git dep:
+
+```clojure
+{:deps {io.github.jlt-commons/slipstream {:git/url "https://github.com/jlt-commons/slipstream"
+                                          :git/sha "..."}}}
+```
+
+The first run builds the native library in the dependency's checkout (needs
+jolt 0.8.26+ for `:build` in `:jolt/native`, plus the toolchain below). With an
+older jolt, run `jolt native` in a clone and depend on it with `:local/root`.
+
 ## Requirements and dependency setup
 
 - Jolt 0.8.23 or a compatible newer release.
-- A Slughorn checkout containing `slughorn/slughorn.cpp` and its example.
-- CMake, a C++20 compiler, `pkg-config`, and FreeType.
-- GLFW, GLAD, msdfgen, and Glimmer are fetched by the build/dependency tasks. The default dependency is Glimmer `v0.1.7`; no sibling Glimmer checkout is required.
-- `nlohmann/json.hpp`, either from Slughorn's `ext/json` submodule or a system package (`nlohmann-json3-dev` on Debian/Ubuntu, `nlohmann-json` on Homebrew).
+- CMake, a C++20 compiler, `pkg-config`, FreeType, and git.
+- Slughorn, GLFW, GLAD, msdfgen, and Glimmer are fetched by the build/dependency tasks. `jolt native` fetches the pinned Slughorn commit (with its `ext/json` submodule) into `vendor/slughorn`; set `SLUGHORN_HOME` to build against your own checkout instead. The default Glimmer dependency is `v0.1.7`.
+- `nlohmann/json.hpp` comes from Slughorn's `ext/json` submodule or a system package (`nlohmann-json3-dev` on Debian/Ubuntu, `nlohmann-json` on Homebrew).
 
-Set `SLUGHORN_HOME` when Slughorn is not at `~/src/slughorn`:
-
-```sh
-export SLUGHORN_HOME="$HOME/src/slughorn"
-```
-
-Resolve dependencies and build the native library:
+Resolve dependencies and build the native library (skipped when it is up to date):
 
 ```sh
 jolt -P
 jolt native
 ```
 
-For development against a local Glimmer checkout, the `:dev` alias overrides the published coordinate:
+For development against a Glimmer checkout next to this one (`../glimmer`), the `:dev` alias overrides the published coordinate:
 
 ```sh
 jolt -A:dev:test
 ```
-
-The checkout path in that alias is developer-local configuration; normal builds and tests use the versioned Git dependency.
 
 ## Fonts and test commands
 
