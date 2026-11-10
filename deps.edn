@@ -11,28 +11,55 @@
  :nrepl/middleware [nrepl.middleware/default-middleware
                     cider.nrepl/cider-middleware]
 
+ ;; :build names the task that produces the library, so a consumer pulling
+ ;; slipstream as a git dep gets it built in the checkout on first use.
  :jolt/native [{:name "slipstream"
                 :darwin ["native/libslipstream.dylib"]
-                :linux ["native/libslipstream.so"]}]
+                :linux ["native/libslipstream.so"]
+                :build "native"}]
 
  :aliases {:dev {:override-deps
                  {io.github.jolt-lang/glimmer
-                  {:local/root "/Users/yogthos/src/jolt-lang/glimmer"}}}
+                  {:local/root "../glimmer"}}}
            :test {:extra-paths ["test" "example"]
                   :main-opts ["-m" "slipstream.test-runner"]}
            :parity {:extra-paths ["test" "example"]
                     :main-opts ["-m" "slipstream.parity-test"]}}
 
  :tasks {:requires ([babashka.fs :as fs])
-         :init (def lib (str "native/libslipstream."
-                             (if (re-find #"^Mac" (System/getProperty "os.name"))
-                               "dylib"
-                               "so")))
+         :init (do (def lib (str "native/libslipstream."
+                                 (if (re-find #"^Mac" (System/getProperty "os.name"))
+                                   "dylib"
+                                   "so")))
+                   ;; the Slughorn commit slipstream is developed and tested against
+                   (def slughorn-ref "704ef1d96751a5a5a38f3cff0f0ded4e7b6893dc")
+                   (def slughorn (str (fs/absolutize (or (System/getenv "SLUGHORN_HOME")
+                                                         "vendor/slughorn")))))
+
+         slughorn {:doc "fetch the pinned Slughorn commit into vendor/slughorn (skipped when SLUGHORN_HOME is set or it is already there)"
+                   :task (cond
+                           (System/getenv "SLUGHORN_HOME")
+                           (when-not (fs/exists? (str slughorn "/slughorn/slughorn.cpp"))
+                             (throw (ex-info (str "SLUGHORN_HOME=" slughorn
+                                                  " has no slughorn/slughorn.cpp; point it at a Slughorn checkout")
+                                             {})))
+
+                           (fs/exists? "vendor/slughorn/slughorn/slughorn.cpp")
+                           (println "slughorn: up to date")
+
+                           :else
+                           (do (fs/create-dirs "vendor/slughorn")
+                               (shell {:dir "vendor/slughorn"} "git" "init" "-q")
+                               (shell {:dir "vendor/slughorn"} "git" "fetch" "-q" "--depth" "1"
+                                      "https://github.com/AlphaPixel/slughorn.git" slughorn-ref)
+                               (shell {:dir "vendor/slughorn"} "git" "checkout" "-q" "FETCH_HEAD")
+                               ;; nlohmann/json, unless the system has it
+                               (shell {:dir "vendor/slughorn"} "git" "submodule" "update"
+                                      "--init" "--depth" "1" "ext/json")))}
 
          native {:doc "build the Slughorn shim if its sources changed"
-                 :task (let [slughorn (or (System/getenv "SLUGHORN_HOME")
-                                          (str (System/getProperty "user.home") "/src/slughorn"))
-                             stamp "native/build/slipstream-slughorn-home"
+                 :depends [slughorn]
+                 :task (let [stamp "native/build/slipstream-slughorn-home"
                              configured (when (fs/exists? stamp)
                                           (.trim (slurp stamp)))
                              sources ["native/CMakeLists.txt"
@@ -57,8 +84,7 @@
                                       (str slughorn "/slughorn/slughorn.hpp")
                                       (str slughorn "/slughorn/canvas.hpp")
                                       (str slughorn "/slughorn/freetype.hpp")
-                                      (str slughorn "/slughorn/serial.hpp")
-                                      "deps.edn"]]
+                                      (str slughorn "/slughorn/serial.hpp")]]
                          (if (or (not= slughorn configured)
                                  (not (fs/exists? lib))
                                  (seq (fs/modified-since lib sources)))
