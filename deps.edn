@@ -1,8 +1,8 @@
 {:paths ["src" "example"]
- :deps {io.github.jolt-lang/glimmer
-        {:git/url "https://github.com/jolt-lang/glimmer.git"
-         :git/tag "v0.1.7"
-         :git/sha "22350c4d047b05359a16b756b20f38ecb391a63b"}
+ :deps {jolt-lang/glimmer
+        {:git/url "https://github.com/jolt-lang/glimmer"
+         :git/tag "v0.1.8"
+         :git/sha "7f00d14d1b3c6239638d03780006c4a76fca379f"}
         jolt-lang/nrepl
         {:git/url "https://github.com/jolt-lang/nrepl"
          :git/tag "v0.4.0"
@@ -19,7 +19,7 @@
                 :build "native"}]
 
  :aliases {:dev {:override-deps
-                 {io.github.jolt-lang/glimmer
+                 {jolt-lang/glimmer
                   {:local/root "../glimmer"}}}
            :test {:extra-paths ["test" "example"]
                   :main-opts ["-m" "slipstream.test-runner"]}

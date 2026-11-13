@@ -27,7 +27,7 @@ older jolt, run `jolt native` in a clone and depend on it with `:local/root`.
 
 - Jolt 0.8.23 or a compatible newer release.
 - CMake, a C++20 compiler, `pkg-config`, FreeType, and git.
-- Slughorn, GLFW, GLAD, msdfgen, and Glimmer are fetched by the build/dependency tasks. `jolt native` fetches the pinned Slughorn commit (with its `ext/json` submodule) into `vendor/slughorn`; set `SLUGHORN_HOME` to build against your own checkout instead. The default Glimmer dependency is `v0.1.7`.
+- Slughorn, GLFW, GLAD, msdfgen, and Glimmer are fetched by the build/dependency tasks. `jolt native` fetches the pinned Slughorn commit (with its `ext/json` submodule) into `vendor/slughorn`; set `SLUGHORN_HOME` to build against your own checkout instead. The default Glimmer dependency is `v0.1.8`.
 - `nlohmann/json.hpp` comes from Slughorn's `ext/json` submodule or a system package (`nlohmann-json3-dev` on Debian/Ubuntu, `nlohmann-json` on Homebrew).
 
 Resolve dependencies and build the native library (skipped when it is up to date):
