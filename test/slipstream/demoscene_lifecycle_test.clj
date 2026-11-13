@@ -475,7 +475,9 @@
                                       :warmup-ms 0 :width 320 :height 200
                                       :auto-quit-ms 60000})))))
       (let [{:keys [error] :as result}
-            (deref client-result 1000 {:error (ex-info "Live nREPL client did not finish" {})})]
+            ;; the client's last call stops the window, so start! returns while
+            ;; it is still closing its transport: give it time to report
+            (deref client-result 30000 {:error (ex-info "Live nREPL client did not finish" {})})]
         (when error (throw error))
         (is (:closed-via-nrepl? result)))
       (finally
