@@ -329,7 +329,7 @@
               current)
             (do
               (Thread/sleep 10)
-              (recur (dec remaining) current))))))))
+              (recur (dec remaining) (capture-live-frame)))))))))
 
 (defn- capture-profile-frame [baseline]
   (let [baseline-hash (hash (vec (get-in baseline [:frame :pixels])))
@@ -351,7 +351,7 @@
               current)
             (do
               (Thread/sleep 10)
-              (recur (dec remaining) current))))))))
+              (recur (dec remaining) (capture-live-frame)))))))))
 
 (defn- exercise-live-nrepl [port]
   (let [transport (nrepl/connect "127.0.0.1" port)]
